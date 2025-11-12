@@ -1,93 +1,276 @@
-# qc-asset-tracker
+# QC Asset Crawler
 
+Small command‑line tool that scans shared media storage (SAN), finds new or changed assets (MXF, WAV, image sequences, etc.), and writes a lightweight QC sidecar file for each. Sidecars record whether an asset has been quality‑checked and, when available, link to the Trak asset‑tracking system.
 
+> Non‑destructive by design: media files are never modified. Sidecars live under a hidden `.qc/` folder by default.
 
-## Getting started
+---
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Table of contents
+- [Overview](#overview)
+- [Key features](#key-features)
+- [How it fits the workflow](#how-it-fits-the-workflow)
+- [Repo layout](#repo-layout)
+- [Quick start](#quick-start)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Common examples](#common-examples)
+  - [CLI options](#cli-options)
+  - [Sidecar storage modes](#sidecar-storage-modes)
+- [Image sequence handling](#image-sequence-handling)
+- [Hashing, fingerprints & caching](#hashing-fingerprints--caching)
+- [Policy versioning & idempotency](#policy-versioning--idempotency)
+- [Trak integration](#trak-integration)
+- [Sidecar schema](#sidecar-schema)
+- [Utilities](#utilities)
+  - [`make_fake_seq.py`](#make_fake_seqpy)
+  - [`qc-clean.py`](#qc-cleanpy)
+- [Logging](#logging)
+- [Performance notes](#performance-notes)
+- [Roadmap](#roadmap)
+- [License](#license)
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+---
 
-## Add your files
+## Overview
+- **Purpose:** Track QC state of media at scale with a tamper‑evident audit trail.
+- **Outputs:** Small JSON sidecars per asset or sequence under `.qc/` (default) or alongside files.
+- **Modes:** Automated nightly audits (mark new assets *pending*) and operator sign‑off runs (mark *pass*/*fail* with notes).
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Key features
+- Cheap fingerprinting to skip unchanged content; deep content hash (BLAKE3, SHA‑256 fallback) when needed.
+- Image‑sequence grouping with frame range, padding, gap detection, and a combined manifest hash.
+- Policy versioning: bump the policy to force re‑QC across prior assets.
+- Optional Trak syncing for assets that successfully resolve in the tracker.
+- Hidden `.qc/` folder keeps workspaces clean on macOS/Linux/Windows.
 
+## How it fits the workflow
+- **Nightly (automated):** scan target roots, create/refresh sidecars, set `qc_result="pending"` when not yet reviewed.
+- **Operator (manual):** confirm review with `--operator`, `--result pass|fail`, and an optional `--note`.
+
+## Repo layout
 ```
-cd existing_repo
-git remote add origin https://gitlab.eikongroup.io/Mastering/glue/qc-asset-tracker.git
-git branch -M main
-git push -uf origin main
+qc-asset-crawler/
+├─ qc_asset_crawler.py           # main CLI
+├─ make_fake_seq.py              # developer utility: create synthetic sequences
+├─ qc-clean.py                   # developer utility: remove sidecars & hash cache
+├─ requirements.txt
+├─ .gitignore
+└─ README.md
 ```
 
-## Integrate with your tools
+## Quick start
+```bash
+# Example: nightly audit of a show root using sidecar subdir mode
+python qc_asset_crawler.py /eikon/disney/jobs \
+  --workers 32 --sidecar-mode subdir
 
-- [ ] [Set up project integrations](https://gitlab.eikongroup.io/Mastering/glue/qc-asset-tracker/-/settings/integrations)
+# Example: operator sign-off with a note
+python qc_asset_crawler.py /jobs/black_swan/mastering/dcp/ov \
+  --operator alice --result pass \
+  --note "Viewed in Clipster. Levels OK" \
+  --sidecar-mode subdir
 
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+# Example: flag a failure
+python qc_asset_crawler.py /jobs/superman/subtitling/feature/ar/final \
+  --operator bob --result fail \
+  --note "Incorrect language code in XML."
+```
 
 ## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```bash
+# (Recommended) create a virtual environment
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# install deps
+pip install -r requirements.txt
+```
+
+## Environment Setup
+
+The QC Asset Crawler uses a simple .env file to store environment-specific configuration (like Trak API keys or QC metadata defaults).
+An example template is included as .env.example.
+
+### Create your environment file
+Copy the template and fill in your local details:
+```bash
+cp .env.example .env
+```
+
+### Edit .env
+Set values appropriate to your environment:
+```bash
+TRAK_BASE_URL=https://qa-trak.eikongroup.io/api/v1/
+TRAK_ASSET_TRACKER_API_KEY=!my-secret-api-key
+LOG_LEVEL=INFO
+```
+
+### Verify it loads
+The crawler loads environment variables automatically using python-dotenv, so no extra configuration is needed.
+At runtime, your .env file is located relative to the executable (even in frozen builds):
+```bash
+dotenv.load_dotenv(find_data_file('.env'))
+```
+### Keep secrets safe
+Your real .env should never be committed to version control — it’s already ignored in .gitignore.
+
 
 ## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+Run the crawler against one or more directory roots. Sidecars are written per discrete asset (single files) or per image sequence directory.
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### Common examples
+- Scan one folder, multithreaded hashing:
+  ```bash
+  python qc_asset_crawler.py /SAN/show/010/plates --workers 16
+  ```
+- Force sidecars inline next to media:
+  ```bash
+  python qc_asset_crawler.py /SAN/show/010/plates --sidecar-mode inline
+  ```
+- Operator pass with policy bump (forces re‑QC on next runs):
+  ```bash
+  export QC_POLICY_VERSION=2025.11.0
+  python qc_asset_crawler.py /SAN/show/010/deliverables --operator jane --result pass
+  ```
+
+### CLI options
+```
+usage: qc_asset_crawler.py PATH [PATH ...] [options]
+
+General:
+  --workers N              Number of worker threads for hashing (default: CPU count)
+  --log LEVEL              Logging level: DEBUG|INFO|WARN|ERROR (default: INFO)
+
+QC metadata:
+  --operator NAME          Operator performing the QC (records in sidecar)
+  --result {pass,fail,pending}
+                           QC outcome to record (default: pending)
+  --note TEXT              Optional operator note
+
+Sidecars:
+  --sidecar-mode {subdir,dot,inline}
+                           Where to store sidecars (default: subdir)
+
+Tracking:
+  --trak                   Enable Trak lookup and posting
+  --trak-url URL           Trak base URL
+  --trak-token TOKEN       Trak auth token (or set $TRAK_TOKEN)
+
+Other:
+  --version                Show tool version
+  -h, --help               Show this help
+```
+
+### Sidecar storage modes
+- `subdir` (default): `<media_root>/.qc/…`
+- `dot`: hidden file alongside media (e.g. `clip.mxf.qc.json` under `.qc/`);
+- `inline`: sidecar placed next to asset (e.g. `clip.mxf.qc.json`).
+
+## Image sequence handling
+The crawler groups files into sequences using a filename stem, numeric frame component and extension (e.g. `shot.087469.tif`). All frames in a sequence share a **combined manifest hash** and a single sidecar. The sidecar records:
+- `base`, `ext`, `first`, `last`, `frame_count`, `frame_min`, `frame_max`, `pad`, `range_count`, `holes`, and a `cheap_fp` summary.
+
+## Hashing, fingerprints & caching
+- **Cheap fingerprint:** `{files, bytes, newest_mtime}` to detect unchanged content without re‑hashing.
+- **Content hash:** BLAKE3 (fast) with SHA‑256 fallback; merged into a manifest hash for sequences.
+- **Per‑folder cache:** `.qc.hashcache.json` to avoid recomputing known hashes.
+
+## Policy versioning & idempotency
+Re‑runs skip work unless bytes or **policy** change. Bumping `QC_POLICY_VERSION` forces a re‑QC sweep so prior sidecars are refreshed with the new policy context.
+
+## Trak integration
+- Looks up assets by path via `/asset/asset-search`.
+- Posts QC results when `qc_result != "pending"` and an asset exists.
+- During outages, lookups fail fast and sidecars remain `pending`; results can be retried later.
+
+## Sidecar schema
+Example (abridged):
+```json
+{
+  "qc_id": "019a73e9-…",
+  "qc_time": "2025-11-11T15:12:43.123456+00:00",
+  "operator": "alice",
+  "tool_version": "eikon-qc-marker/1.1.0",
+  "policy_version": "2025.11.0",
+  "asset_path": "/SAN/show/010/plates/lgt",
+  "asset_id": "ASSET-1234",
+  "content_hash": "blake3:c29b…",
+  "qc_result": "pass",
+  "notes": "Viewed in Clipster; levels OK",
+  "sequence": {
+    "base": "conjuring-last-rites_tlr-f1_dcin_las",
+    "ext": "tif",
+    "first": "…087460.tif",
+    "last":  "…089929.tif",
+    "frame_count": 117,
+    "frame_min": 87460,
+    "frame_max": 89929,
+    "pad": 6,
+    "range_count": 10,
+    "holes": 23,
+    "cheap_fp": {"files":117, "bytes":1234567890, "newest_mtime":1762870000}
+  }
+}
+```
+
+## Utilities
+
+### `make_fake_seq.py`
+Developer helper to generate a synthetic image sequence for testing scanners, gaps and padding.
+
+**Usage**
+```bash
+python make_fake_seq.py \
+  --out /tmp/fake_seq/shot_A \
+  --start 87460 --frames 117 --pad 6 --ext tif \
+  --holes 23 --ranges 10
+```
+**Options**
+- `--out PATH` (required): output directory or prefix; will create missing dirs
+- `--start N` (default: 1): first frame number
+- `--frames N` (default: 100): total frames to generate
+- `--pad N` (default: 4): zero‑padding width
+- `--ext EXT` (default: tif): file extension (e.g. tif, dpx, exr, jpg, png)
+- `--holes N` (default: 0): number of missing frames to simulate
+- `--ranges N` (default: 1): number of contiguous ranges to simulate
+- `--bytes N` (optional): size per file in bytes (writes random data)
+
+### `qc-clean.py`
+Utility to clean a workspace back to a “fresh” state by removing QC artifacts.
+
+**Removes**
+- `.qc/` directories (recursively)
+- `*.qc.json` sidecars (inline mode)
+- `.qc.hashcache.json` per‑folder hash caches
+- `qc.sequence.json` (legacy/explicit sequence files)
+
+**Usage**
+```bash
+# dry‑run first
+python qc-clean.py /path/to/root --dry-run
+
+# actually delete (non‑interactive)
+python qc-clean.py /path/to/root --yes
+```
+**Options**
+- `--yes`                 Proceed without prompting
+- `--dry-run`             Show what would be deleted without deleting
+- `--include-hidden`      Include hidden directories outside `.qc/`
+- `--glob PATTERN`        Additional file glob(s) to remove (repeatable)
+- `--workers N`           Parallelise deletions (default: 8)
+
+## Logging
+Set `--log DEBUG` for verbose diagnostics. Trak 401/403s are de‑duplicated to avoid log spam during outages.
+
+## Performance notes
+- Multithreaded hashing via `ThreadPoolExecutor`.
+- Cheap fingerprint avoids full rescans; per‑folder cache speeds up revisits.
+- Nightly runtime scales sub‑linearly with total project size.
 
 ## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+- HMAC signing for sidecar integrity
+- Retry queue for pending Trak posts
+- Extended xattr support
 
 ## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+TBD (internal).
