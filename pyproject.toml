@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qc-asset-crawler"
+description = "Scan media roots, write QC sidecars, and integrate with Trak."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary - EIKON internal" }
+authors = [{ name = "Rus Wetherell", email = "rus.wetherell@eikon.group" }]
+dependencies = []
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = { attr = "qc_asset_crawler.__version__" }
+
+[project.scripts]
+# These call shims that in turn run your current scripts unchanged
+qc-crawl = "qc_asset_crawler.shims:crawl"
+qc-clean = "qc_asset_crawler.shims:clean"
+make-fake-seq = "qc_asset_crawler.shims:fake_seq"

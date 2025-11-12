@@ -1,0 +1,4 @@
+[console_scripts]
+make-fake-seq = qc_asset_crawler.shims:fake_seq
+qc-clean = qc_asset_crawler.shims:clean
+qc-crawl = qc_asset_crawler.shims:crawl

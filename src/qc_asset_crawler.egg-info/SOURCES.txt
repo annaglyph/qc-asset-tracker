@@ -1,0 +1,11 @@
+README.md
+pyproject.toml
+src/qc_asset_crawler/__init__.py
+src/qc_asset_crawler/shims.py
+src/qc_asset_crawler.egg-info/PKG-INFO
+src/qc_asset_crawler.egg-info/SOURCES.txt
+src/qc_asset_crawler.egg-info/dependency_links.txt
+src/qc_asset_crawler.egg-info/entry_points.txt
+src/qc_asset_crawler.egg-info/top_level.txt
+tests/test_cli_help.py
+tests/test_version.py
