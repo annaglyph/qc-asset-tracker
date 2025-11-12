@@ -1,0 +1,9 @@
+backup/
+build/
+dist/
+__pycache__/
+Thumbs.db
+Thumbs.db:encryptable
+.DS_Store
+.env
+venv/
