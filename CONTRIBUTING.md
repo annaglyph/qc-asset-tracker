@@ -106,21 +106,29 @@ pytest:
 
 ## Repository Skeleton
 ```
-qc-asset-crawler/
-├── qc_asset_crawler/
-│   ├── __init__.py
-│   ├── qc_asset_crawler.py        # main crawler (hashing, sequences, trak logic)
+qc-asset-tracker/
+├─ qc_crawl.py                   # main CLI
+├─ qc_cleanup.py                   # developer utility: remove sidecars & hash cache
+├─ make_fake_seq.py              # developer utility: create synthetic image sequences
 │
-├── make_fake_seq.py               # dev utility: fake image sequences
-├── qc-clean.py                    # dev utility: clean QC metadata
-├── requirements.txt
-├── .gitignore
-├── .pre-commit-config.yaml
-├── README.md
-├── CONTRIBUTING.md
-└── tests/
-    ├── __init__.py
-    ├── test_crawler_core.py
+├─ requirements.txt
+├─ requirements-dev.txt
+├─ .env.example
+├─ .gitignore
+├─ .flake8
+├─ .pre-commit-config.yaml
+│
+├─ src/
+│   └─ qc_asset_crawler/
+│       ├─ __init__.py           # package version
+│       └─ shims.py              # console entry point wrappers
+│
+├─ tests/
+│   ├─ test_version.py
+│   └─ test_cli_help.py
+│
+├─ README.md
+└─ CONTRIBUTING.md
 ```
 
 ---
