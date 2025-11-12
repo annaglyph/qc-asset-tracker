@@ -24,7 +24,7 @@ Small command‑line tool that scans shared media storage (SAN), finds new or ch
 - [Sidecar schema](#sidecar-schema)
 - [Utilities](#utilities)
   - [`make_fake_seq.py`](#make_fake_seqpy)
-  - [`qc-clean.py`](#qc-cleanpy)
+  - [`qc_cleanup.py`](#qc-cleanpy)
 - [Logging](#logging)
 - [Performance notes](#performance-notes)
 - [Roadmap](#roadmap)
@@ -53,7 +53,7 @@ Small command‑line tool that scans shared media storage (SAN), finds new or ch
 qc-asset-crawler/
 ├─ qc_asset_crawler.py           # main CLI
 ├─ make_fake_seq.py              # developer utility: create synthetic sequences
-├─ qc-clean.py                   # developer utility: remove sidecars & hash cache
+├─ qc_cleanup.py                 # developer utility: remove sidecars & hash cache
 ├─ requirements.txt
 ├─ .gitignore
 └─ README.md
@@ -235,7 +235,7 @@ python make_fake_seq.py \
 - `--ranges N` (default: 1): number of contiguous ranges to simulate
 - `--bytes N` (optional): size per file in bytes (writes random data)
 
-### `qc-clean.py`
+### `qc_cleanup.py`
 Utility to clean a workspace back to a “fresh” state by removing QC artifacts.
 
 **Removes**
@@ -247,10 +247,10 @@ Utility to clean a workspace back to a “fresh” state by removing QC artifact
 **Usage**
 ```bash
 # dry‑run first
-python qc-clean.py /path/to/root --dry-run
+python qc_cleanup.py /path/to/root --dry-run
 
 # actually delete (non‑interactive)
-python qc-clean.py /path/to/root --yes
+python qc_cleanup.py /path/to/root --yes
 ```
 **Options**
 - `--yes`                 Proceed without prompting
