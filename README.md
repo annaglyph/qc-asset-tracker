@@ -24,7 +24,7 @@ Small command‑line tool that scans shared media storage (SAN), finds new or ch
 - [Sidecar schema](#sidecar-schema)
 - [Utilities](#utilities)
   - [`make_fake_seq.py`](#make_fake_seqpy)
-  - [`qc_cleanup.py`](#qc-cleanpy)
+  - [`qc_cleanup.py`](#qc_cleanuppy)
 - [Logging](#logging)
 - [Performance notes](#performance-notes)
 - [Roadmap](#roadmap)
