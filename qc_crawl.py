@@ -13,15 +13,21 @@ import hashlib
 import json
 import logging
 import os
-import re
 import sys
 import time
 import uuid
 import requests
 import dotenv
+
+from qc_asset_crawler.sequences import (
+    iter_media,
+    group_sequences,
+    summarize_frames,
+)
+
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 try:
     import blake3  # type: ignore
@@ -56,23 +62,6 @@ XATTR_KEY = os.environ.get("QC_XATTR_KEY", "user.eikon.qc")
 HASHCACHE_NAME = os.environ.get("QC_HASHCACHE_NAME", ".qc.hashcache.json")
 SIDE_SUFFIX_FILE = os.environ.get("QC_SIDE_SUFFIX_FILE", ".qc.json")
 SIDE_NAME_SEQUENCE = os.environ.get("QC_SIDE_NAME_SEQUENCE", "qc.sequence.json")
-
-# Media handling
-MEDIA_EXTS = {
-    ".mxf",
-    ".wav",
-    ".aif",
-    ".aiff",
-    ".mov",
-    ".mp4",
-    ".exr",
-    ".dpx",
-    ".tif",
-    ".tiff",
-    ".jpg",
-    ".png",
-}
-SEQ_EXTS = {".exr", ".dpx", ".tif", ".tiff", ".jpg", ".png"}
 
 
 # ----------------- Utils -----------------
@@ -112,49 +101,6 @@ def safe_rel(path: Path, root: Path) -> str:
         return path.relative_to(root).as_posix()
     except Exception:
         return path.as_posix()
-
-
-# ----------------- Filesystem walk & grouping -----------------
-_seq_re = re.compile(r"^(?P<base>.*?)(?P<frame>\d+)(?P<dot>\.)(?P<ext>[^.]+)$")
-
-
-def is_sequence_candidate(p: Path) -> bool:
-    return p.suffix.lower() in SEQ_EXTS
-
-
-def iter_media(root: Path) -> Iterable[Path]:
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-        for f in filenames:
-            if f.startswith("."):
-                continue
-            p = Path(dirpath) / f
-            if p.suffix.lower() in MEDIA_EXTS:
-                yield p
-
-
-def seq_key(p: Path):
-    m = _seq_re.match(p.name)
-    if not m:
-        return None
-    return (p.parent, m.group("base"), m.group("ext"))
-
-
-def group_sequences(files: Iterable[Path]):
-    groups = {}
-    singles = []
-    for p in files:
-        if is_sequence_candidate(p):
-            k = seq_key(p)
-            if k:
-                groups.setdefault(k, []).append(p)
-                continue
-        singles.append(p)
-    # Keep groups with >=3 frames (tunable)
-    sequences = {k: sorted(v) for k, v in groups.items() if len(v) >= 3}
-    seq_members = {p for vs in sequences.values() for p in vs}
-    singles.extend([p for p in files if p not in seq_members and p not in singles])
-    return sequences, singles
 
 
 # ----------------- Hashing -----------------
@@ -229,42 +175,6 @@ def manifest_hash_for_files(files: List[Path], cache) -> str:
     joined = "".join(lines).encode("utf-8")
     # Use blake2b for the joined manifest (fast, stable); content hashes are already blake3/sha256
     return "blake2b:" + hashlib.blake2b(joined, digest_size=32).hexdigest()
-
-
-# ----------------- Sequence summaries -----------------
-def summarize_frames(file_names: List[str]):
-    frames = []
-    pad = None
-    for n in file_names:
-        m = _seq_re.match(n)
-        if not m:
-            continue
-        s = m.group("frame")
-        frames.append(int(s))
-        pad = pad or len(s)
-    if not frames:
-        return None
-    frames.sort()
-    pad = pad or 0
-    ranges = 0
-    holes = 0
-    prev = frames[0]
-    for f in frames[1:]:
-        if f == prev + 1:
-            prev = f
-        else:
-            ranges += 1
-            holes += f - prev - 1
-            prev = f
-    ranges += 1  # Last range
-    return {
-        "frame_min": frames[0],
-        "frame_max": frames[-1],
-        "pad": pad,
-        "frame_count": len(frames),
-        "range_count": ranges,
-        "holes": holes,
-    }
 
 
 # ----------------- Sidecars -----------------

@@ -33,7 +33,7 @@ Small command‑line tool that scans shared media storage (SAN), finds new or ch
 - [Sidecar schema](#sidecar-schema)
 - [Utilities](#utilities)
   - [`make_fake_seq.py`](#make_fake_seqpy)
-  - [`qc_cleanup.py`](#qc-cleanpy)
+  - [`qc_cleanup.py`](#qc_cleanuppy)
 - [Logging](#logging)
 - [Performance notes](#performance-notes)
 - [Roadmap](#roadmap)
@@ -59,29 +59,45 @@ Small command‑line tool that scans shared media storage (SAN), finds new or ch
 
 ## Repo layout
 ```
-qc-asset-crawler/
-├─ qc_asset_crawler.py           # main CLI
-├─ make_fake_seq.py              # developer utility: create synthetic sequences
-├─ qc_cleanup.py                 # developer utility: remove sidecars & hash cache
+qc-asset-tracker/
+├─ qc_crawl.py                   # main CLI
+├─ qc_cleanup.py                   # developer utility: remove sidecars & hash cache
+├─ make_fake_seq.py              # developer utility: create synthetic image sequences
+│
 ├─ requirements.txt
+├─ requirements-dev.txt
+├─ .env.example
 ├─ .gitignore
-└─ README.md
+├─ .flake8
+├─ .pre-commit-config.yaml
+│
+├─ src/
+│   └─ qc_asset_crawler/
+│       ├─ __init__.py           # package version
+│       └─ shims.py              # console entry point wrappers
+│
+├─ tests/
+│   ├─ test_version.py
+│   └─ test_cli_help.py
+│
+├─ README.md
+└─ CONTRIBUTING.md
 ```
 
 ## Quick start
 ```bash
 # Example: nightly audit of a show root using sidecar subdir mode
-python qc_asset_crawler.py /eikon/disney/jobs \
+python qc_crawl.py /eikon/disney/jobs \
   --workers 32 --sidecar-mode subdir
 
 # Example: operator sign-off with a note
-python qc_asset_crawler.py /jobs/black_swan/mastering/dcp/ov \
+python qc_crawl.py /jobs/black_swan/mastering/dcp/ov \
   --operator alice --result pass \
   --note "Viewed in Clipster. Levels OK" \
   --sidecar-mode subdir
 
 # Example: flag a failure
-python qc_asset_crawler.py /jobs/superman/subtitling/feature/ar/final \
+python qc_crawl.py /jobs/superman/subtitling/feature/ar/final \
   --operator bob --result fail \
   --note "Incorrect language code in XML."
 ```
@@ -130,21 +146,21 @@ Run the crawler against one or more directory roots. Sidecars are written per di
 ### Common examples
 - Scan one folder, multithreaded hashing:
   ```bash
-  python qc_asset_crawler.py /SAN/show/010/plates --workers 16
+  python qc_crawl.py /SAN/show/010/plates --workers 16
   ```
 - Force sidecars inline next to media:
   ```bash
-  python qc_asset_crawler.py /SAN/show/010/plates --sidecar-mode inline
+  python qc_crawl.py /SAN/show/010/plates --sidecar-mode inline
   ```
 - Operator pass with policy bump (forces re‑QC on next runs):
   ```bash
   export QC_POLICY_VERSION=2025.11.0
-  python qc_asset_crawler.py /SAN/show/010/deliverables --operator jane --result pass
+  python qc_crawl.py /SAN/show/010/deliverables --operator jane --result pass
   ```
 
 ### CLI options
 ```
-usage: qc_asset_crawler.py PATH [PATH ...] [options]
+usage: qc_crawl.py PATH [PATH ...] [options]
 
 General:
   --workers N              Number of worker threads for hashing (default: CPU count)
