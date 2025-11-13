@@ -7,5 +7,5 @@ Thumbs.db:encryptable
 .DS_Store
 .env
 venv/
-README.md-BACKUP
-CONTRIBUTING.md-BACKUP
+qc_asset_crawler.egg-info
+.pytest_cache
