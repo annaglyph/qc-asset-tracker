@@ -9,7 +9,6 @@ qc-asset-crawler
 """
 import argparse
 import concurrent.futures
-import hashlib
 import json
 import logging
 import os
@@ -25,14 +24,11 @@ from qc_asset_crawler.sequences import (
     summarize_frames,
 )
 
+from qc_asset_crawler import hashing
+
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-
-try:
-    import blake3  # type: ignore
-except Exception:
-    blake3 = None
 
 
 def find_data_file(filename):
@@ -104,32 +100,6 @@ def safe_rel(path: Path, root: Path) -> str:
 
 
 # ----------------- Hashing -----------------
-def blake3_or_sha256_file(path: Path, chunk=4 * 1024 * 1024) -> str:
-    if blake3 is not None:
-        h = blake3.blake3()
-        with path.open("rb") as f:
-            for b in iter(lambda: f.read(chunk), b""):
-                h.update(b)
-        return "blake3:" + h.hexdigest()
-    # Fallback
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for b in iter(lambda: f.read(chunk), b""):
-            h.update(b)
-    return "sha256:" + h.hexdigest()
-
-
-def cheap_fingerprint(paths: List[Path]) -> Dict[str, int]:
-    total_files, total_bytes, newest_mtime = 0, 0, 0
-    for p in paths:
-        st = p.stat()
-        total_files += 1
-        total_bytes += int(st.st_size)
-        if int(st.st_mtime) > newest_mtime:
-            newest_mtime = int(st.st_mtime)
-    return {"files": total_files, "bytes": total_bytes, "newest_mtime": newest_mtime}
-
-
 def load_hashcache(dir_path: Path):
     f = dir_path / HASHCACHE_NAME
     if not f.exists():
@@ -146,35 +116,6 @@ def save_hashcache(dir_path: Path, cache):
         f.write_text(json.dumps(cache, indent=2, sort_keys=True), encoding="utf-8")
     except Exception:
         pass
-
-
-def content_hash_with_cache(p: Path, cache):
-    key = p.name
-    st = p.stat()
-    meta = {"size": int(st.st_size), "mtime": int(st.st_mtime)}
-    entry = cache.get(key)
-    if (
-        entry
-        and entry.get("size") == meta["size"]
-        and entry.get("mtime") == meta["mtime"]
-        and "hash" in entry
-    ):
-        return entry["hash"]
-    h = blake3_or_sha256_file(p)
-    cache[key] = {"size": meta["size"], "mtime": meta["mtime"], "hash": h}
-    return h
-
-
-def manifest_hash_for_files(files: List[Path], cache) -> str:
-    # Stable order
-    lines = []
-    for p in files:
-        st = p.stat()
-        fh = content_hash_with_cache(p, cache)
-        lines.append(f"{p.name}\0{st.st_size}\0{fh}\n")
-    joined = "".join(lines).encode("utf-8")
-    # Use blake2b for the joined manifest (fast, stable); content hashes are already blake3/sha256
-    return "blake2b:" + hashlib.blake2b(joined, digest_size=32).hexdigest()
 
 
 # ----------------- Sidecars -----------------
@@ -309,7 +250,7 @@ def make_qc_signature(
 def process_single_file(p: Path, operator: str):
     sc = sidecar_path_for_file(p)
     existing = read_sidecar(sc)
-    ch = blake3_or_sha256_file(p)
+    ch = hashing.blake3_or_sha256_file(p)
     if not needs_reqc(existing, ch):
         return ("skip", p)
     lookup = tracker_lookup_asset_by_path(p)
@@ -331,7 +272,7 @@ def process_sequence(
     cache = load_hashcache(dir_path)
 
     # Reuse cheap fingerprint to avoid rehashing needlessly
-    cheap_fp = cheap_fingerprint(files)
+    cheap_fp = hashing.cheap_fingerprint(files)
     existing = read_sidecar(sc)
 
     # If cheap fingerprint hasn't changed and policy unchanged, we can skip deep hashing & QC
@@ -341,7 +282,7 @@ def process_sequence(
             return ("skip", dir_path / f"{base}*.{ext}")
 
     # Deep hashing with cache
-    seq_hash = manifest_hash_for_files(files, cache)
+    seq_hash = hashing.manifest_hash_for_files(files, cache)
     save_hashcache(dir_path, cache)
     if existing and not needs_reqc(existing, seq_hash):
         # But update cheap_fp if missing
