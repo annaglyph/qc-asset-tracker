@@ -12,8 +12,6 @@ import concurrent.futures
 import logging
 import os
 import sys
-import time
-import uuid
 import dotenv
 
 from qc_asset_crawler.sequences import (
@@ -22,9 +20,8 @@ from qc_asset_crawler.sequences import (
     summarize_frames,
 )
 
-from qc_asset_crawler import hashing, trak_client, sidecar, hashcache
+from qc_asset_crawler import hashing, trak_client, sidecar, hashcache, qcstate
 
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -46,27 +43,12 @@ G_FORCED_RESULT: Optional[str] = None
 G_NOTE: Optional[str] = None
 
 # ----------------- Config -----------------
-TOOL_VERSION = "eikon-qc-marker/1.1.0"
-
 
 # Environment-configurable
 XATTR_KEY = os.environ.get("QC_XATTR_KEY", "user.eikon.qc")
 
 
 # ----------------- Utils -----------------
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def uuid7() -> str:
-    if hasattr(uuid, "uuid7"):
-        return str(uuid.uuid7())  # py>=3.12
-    # Fallback: time-ordered-ish UUID (ULID-like)
-    t_ms = int(time.time() * 1000).to_bytes(6, "big")
-    rand = os.urandom(10)
-    return str(uuid.UUID(bytes=t_ms + rand))
-
-
 def normalize_base_ext(base: str, ext: str) -> Tuple[str, str]:
     # base: strip trailing '.' ; ext: strip leading '.'
     return base[:-1] if base.endswith(".") else base, (
@@ -95,27 +77,6 @@ def set_xattr(path: Path, value: str) -> None:
 
 
 # ----------------- Processing -----------------
-def make_qc_signature(
-    asset_path: Path,
-    content_hash: str,
-    asset_id: Optional[str],
-    operator: str,
-    result: str = "pass",
-) -> dict:
-    return {
-        "qc_id": uuid7(),
-        "qc_time": now_iso(),
-        "operator": operator,
-        "tool_version": TOOL_VERSION,
-        "policy_version": sidecar.get_qc_policy_version(),
-        "asset_path": asset_path.as_posix(),
-        "asset_id": asset_id,
-        "content_hash": content_hash,
-        "qc_result": result,
-        "notes": G_NOTE or "",
-    }
-
-
 def process_single_file(p: Path, operator: str):
     sc = sidecar.sidecar_path_for_file(p)
     existing = sidecar.read_sidecar(sc)
@@ -125,7 +86,15 @@ def process_single_file(p: Path, operator: str):
     lookup = trak_client.tracker_lookup_asset_by_path(p)
     asset_id = lookup.get("asset_id")
     result = G_FORCED_RESULT or ("pass" if asset_id else "pending")
-    sig = make_qc_signature(p, ch, asset_id, operator, result=result)
+    sig = qcstate.make_qc_signature(
+        p,
+        ch,
+        asset_id,
+        operator,
+        result=result,
+        note=G_NOTE,
+    )
+
     if result == "pending":
         sig["tracker_status"] = {k: lookup.get(k) for k in ("status", "http_code")}
     sidecar.write_sidecar(sc, sig)
@@ -172,7 +141,14 @@ def process_sequence(
         asset_id = lookup_file.get("asset_id")
         lookup_used = lookup_file
     result = G_FORCED_RESULT or ("pass" if asset_id else "pending")
-    sig = make_qc_signature(dir_path, seq_hash, asset_id, operator, result=result)
+    sig = qcstate.make_qc_signature(
+        dir_path,
+        seq_hash,
+        asset_id,
+        operator,
+        result=result,
+        note=G_NOTE,
+    )
 
     # Lightweight sequence summary
     names = [p.name for p in files]
