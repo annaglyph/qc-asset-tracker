@@ -55,9 +55,11 @@ def make_qc_signature(
         "operator": operator,
         "tool_version": config.get_tool_version(),
         "policy_version": sidecar.get_qc_policy_version(),
+        "schema_version": sidecar.get_schema_version(),
         "asset_path": asset_path.as_posix(),
         "asset_id": asset_id,
         "content_hash": content_hash,
         "qc_result": result,
         "notes": note or "",
+        "sequence": None,
     }

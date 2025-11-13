@@ -18,6 +18,16 @@ def get_qc_policy_version() -> str:
     return os.environ.get("QC_POLICY_VERSION", "2025.11.0")
 
 
+def get_schema_version() -> str:
+    """
+    Return the sidecar schema version.
+
+    This is separate from QC_POLICY_VERSION (which controls re-QC policy).
+    Bump this when you change the JSON shape in a non-trivial way.
+    """
+    return os.environ.get("QC_SCHEMA_VERSION", "1.0.0")
+
+
 # ----------------- Sidecars -----------------
 def sidecar_path_for_file(p: Path) -> Path:
     mode = globals().get("G_SIDECAR_MODE", "inline")
