@@ -20,7 +20,7 @@ from qc_asset_crawler.sequences import (
     summarize_frames,
 )
 
-from qc_asset_crawler import hashing, trak_client, sidecar, hashcache, qcstate
+from qc_asset_crawler import hashing, trak_client, sidecar, hashcache, qcstate, config
 
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -42,11 +42,6 @@ G_SIDECAR_MODE: str = "subdir"
 G_FORCED_RESULT: Optional[str] = None
 G_NOTE: Optional[str] = None
 
-# ----------------- Config -----------------
-
-# Environment-configurable
-XATTR_KEY = os.environ.get("QC_XATTR_KEY", "user.eikon.qc")
-
 
 # ----------------- Utils -----------------
 def normalize_base_ext(base: str, ext: str) -> Tuple[str, str]:
@@ -67,11 +62,13 @@ def safe_rel(path: Path, root: Path) -> str:
 def set_xattr(path: Path, value: str) -> None:
     try:
         if sys.platform.startswith("linux"):
-            os.setxattr(path.as_posix(), XATTR_KEY, value.encode("utf-8"))
+            os.setxattr(path.as_posix(), config.get_xattr_key(), value.encode("utf-8"))
         elif sys.platform == "darwin":
             import xattr
 
-            xattr.setxattr(path.as_posix(), XATTR_KEY, value.encode("utf-8"))
+            xattr.setxattr(
+                path.as_posix(), config.get_xattr_key(), value.encode("utf-8")
+            )
     except Exception:
         pass
 
