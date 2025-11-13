@@ -1,11 +1,41 @@
-backup/
+# Python build artifacts
+*.egg-info/
+src/*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# Pytest / coverage
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Build / dist
 build/
 dist/
-__pycache__/
-Thumbs.db
-Thumbs.db:encryptable
+*.whl
+
+# IDE / editor junk
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS junk
 .DS_Store
+Thumbs.db
+
+# QC tool specific
+.qc/
+*.qc.json
+*.qc.sequence.json
+*.qc.hashcache.json
+
 .env
-venv/
-qc_asset_crawler.egg-info
-.pytest_cache
