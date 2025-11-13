@@ -3,13 +3,9 @@ from __future__ import annotations
 import os
 
 
-# Tool identity / version (semver-compatible string)
-TOOL_VERSION = "eikon-qc-marker/1.1.0"
-
-
 def get_tool_version() -> str:
     """Return the tool version string used in sidecars and logs."""
-    return TOOL_VERSION
+    return os.environ.get("TOOL_VERSION", "eikon-qc-marker/1.1.0")
 
 
 def get_xattr_key() -> str:

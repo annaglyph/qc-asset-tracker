@@ -8,22 +8,12 @@ qc-asset-crawler
 - Consistent JSON schema + validation
 """
 import argparse
-import concurrent.futures
 import logging
 import os
 import sys
 import dotenv
-
-from qc_asset_crawler.sequences import (
-    iter_media,
-    group_sequences,
-    summarize_frames,
-)
-
-from qc_asset_crawler import hashing, trak_client, sidecar, hashcache, qcstate, config
-
 from pathlib import Path
-from typing import List, Optional, Tuple
+from qc_asset_crawler import crawler
 
 
 def find_data_file(filename):
@@ -37,171 +27,48 @@ def find_data_file(filename):
 dotenv.load_dotenv(find_data_file(".env"))
 
 
-# Globals set from CLI
-G_SIDECAR_MODE: str = "subdir"
-G_FORCED_RESULT: Optional[str] = None
-G_NOTE: Optional[str] = None
-
-
-# ----------------- Utils -----------------
-def normalize_base_ext(base: str, ext: str) -> Tuple[str, str]:
-    # base: strip trailing '.' ; ext: strip leading '.'
-    return base[:-1] if base.endswith(".") else base, (
-        ext[1:] if ext.startswith(".") else ext
-    )
-
-
-def safe_rel(path: Path, root: Path) -> str:
-    try:
-        return path.relative_to(root).as_posix()
-    except Exception:
-        return path.as_posix()
-
-
-# ----------------- xattrs (best-effort) -----------------
-def set_xattr(path: Path, value: str) -> None:
-    try:
-        if sys.platform.startswith("linux"):
-            os.setxattr(path.as_posix(), config.get_xattr_key(), value.encode("utf-8"))
-        elif sys.platform == "darwin":
-            import xattr
-
-            xattr.setxattr(
-                path.as_posix(), config.get_xattr_key(), value.encode("utf-8")
-            )
-    except Exception:
-        pass
-
-
-# ----------------- Processing -----------------
-def process_single_file(p: Path, operator: str):
-    sc = sidecar.sidecar_path_for_file(p)
-    existing = sidecar.read_sidecar(sc)
-    ch = hashing.blake3_or_sha256_file(p)
-    if not sidecar.needs_reqc(existing, ch):
-        return ("skip", p)
-    lookup = trak_client.tracker_lookup_asset_by_path(p)
-    asset_id = lookup.get("asset_id")
-    result = G_FORCED_RESULT or ("pass" if asset_id else "pending")
-    sig = qcstate.make_qc_signature(
-        p,
-        ch,
-        asset_id,
-        operator,
-        result=result,
-        note=G_NOTE,
-    )
-
-    if result == "pending":
-        sig["tracker_status"] = {k: lookup.get(k) for k in ("status", "http_code")}
-    sidecar.write_sidecar(sc, sig)
-    set_xattr(p, sig["qc_id"])
-    trak_client.tracker_set_qc(asset_id, sig)
-    return ("marked", p)
-
-
-def process_sequence(
-    dir_path: Path, base: str, ext: str, files: List[Path], operator: str
-):
-    sc = sidecar.sequence_sidecar_path(dir_path)
-    cache = hashcache.load_hashcache(dir_path)
-
-    # Reuse cheap fingerprint to avoid rehashing needlessly
-    cheap_fp = hashing.cheap_fingerprint(files)
-    existing = sidecar.read_sidecar(sc)
-
-    # If cheap fingerprint hasn't changed and policy unchanged, we can skip deep hashing & QC
-    if existing and existing.get("policy_version") == sidecar.get_qc_policy_version():
-        seq = existing.get("sequence", {})
-        if seq.get("cheap_fp") == cheap_fp:
-            return ("skip", dir_path / f"{base}*.{ext}")
-
-    # Deep hashing with cache
-    seq_hash = hashing.manifest_hash_for_files(files, cache)
-    hashcache.save_hashcache(dir_path, cache)
-    if existing and not sidecar.needs_reqc(existing, seq_hash):
-        # But update cheap_fp if missing
-        if existing.get("sequence", {}).get("cheap_fp") != cheap_fp:
-            existing.setdefault("sequence", {})["cheap_fp"] = cheap_fp
-            sidecar.write_sidecar(sc, existing)
-        return ("skip", dir_path / f"{base}*.{ext}")
-
-    # Normalize base/ext for storage
-    nbase, next_ = normalize_base_ext(base, ext)
-
-    # Try folder then first file; pick the first successful lookup
-    lookup_dir = trak_client.tracker_lookup_asset_by_path(dir_path)
-    asset_id = lookup_dir.get("asset_id")
-    lookup_used = lookup_dir
-    if not asset_id:
-        lookup_file = trak_client.tracker_lookup_asset_by_path(files[0])
-        asset_id = lookup_file.get("asset_id")
-        lookup_used = lookup_file
-    result = G_FORCED_RESULT or ("pass" if asset_id else "pending")
-    sig = qcstate.make_qc_signature(
-        dir_path,
-        seq_hash,
-        asset_id,
-        operator,
-        result=result,
-        note=G_NOTE,
-    )
-
-    # Lightweight sequence summary
-    names = [p.name for p in files]
-    summary = summarize_frames(names) or {}
-    sig["sequence"] = {
-        "base": nbase,
-        "ext": next_,
-        "first": names[0],
-        "last": names[-1],
-        "frame_count": len(names),
-        **summary,
-        "cheap_fp": cheap_fp,
-    }
-
-    if result == "pending":
-        sig["tracker_status"] = {k: lookup_used.get(k) for k in ("status", "http_code")}
-    sidecar.write_sidecar(sc, sig)
-
-    try:
-        set_xattr(dir_path, sig["qc_id"])
-    except Exception:
-        pass
-
-    trak_client.tracker_set_qc(asset_id, sig)
-    return ("marked", dir_path / f"{nbase}*.{next_}")
-
-
 # ----------------- CLI -----------------
 def main():
-    ap = argparse.ArgumentParser(
-        description="QC marker for media on a SAN (consolidated)."
-    )
+    ap = argparse.ArgumentParser(description="QC marker for media on a SAN.")
     ap.add_argument("root", help="Root path to crawl")
     ap.add_argument(
         "--operator",
         default=os.environ.get("USER") or os.environ.get("USERNAME") or "system",
     )
-    ap.add_argument("--workers", type=int, default=max(os.cpu_count() or 4, 4))
     ap.add_argument(
-        "--log", default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR)"
+        "--workers",
+        type=int,
+        default=max(os.cpu_count() or 4, 4),
     )
     ap.add_argument(
-        "--min-seq", type=int, default=3, help="Minimum files to treat as a sequence"
+        "--log",
+        default="INFO",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR)",
+    )
+    ap.add_argument(
+        "--min-seq",
+        type=int,
+        default=3,
+        help="Minimum files to treat as a sequence",
     )
     ap.add_argument(
         "--sidecar-mode",
         choices=["inline", "dot", "subdir"],
         default="subdir",
-        help="Where/how to store sidecars: inline, dot, or subdir (.qc/). Default: subdir",
+        help=(
+            "Where/how to store sidecars: inline, dot, or subdir (.qc/). "
+            "Default: subdir"
+        ),
     )
     ap.add_argument(
         "--result",
         choices=["pass", "fail", "pending"],
         help="Force QC result override for all assets processed",
     )
-    ap.add_argument("--note", help="Optional operator note to store in the sidecar")
+    ap.add_argument(
+        "--note",
+        help="Optional operator note to store in the sidecar",
+    )
     args = ap.parse_args()
 
     logging.basicConfig(
@@ -209,36 +76,18 @@ def main():
         format="%(levelname)s %(message)s",
     )
 
-    global G_SIDECAR_MODE, G_FORCED_RESULT, G_NOTE
-    G_SIDECAR_MODE = args.sidecar_mode
-    G_FORCED_RESULT = args.result
-    G_NOTE = args.note
+    # Set the globals in the crawler module
+    crawler.G_SIDECAR_MODE = args.sidecar_mode
+    crawler.G_FORCED_RESULT = args.result
+    crawler.G_NOTE = args.note
 
     root = Path(args.root).resolve()
-    files = list(iter_media(root))
-
-    sequences_map, singles = group_sequences(files)
-    logging.info("Found %d sequences and %d singles", len(sequences_map), len(singles))
-
-    results = []
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = [
-            ex.submit(process_sequence, d, base, ext, members, args.operator)
-            for (d, base, ext), members in sequences_map.items()
-        ]
-        futs += [ex.submit(process_single_file, p, args.operator) for p in singles]
-        for f in concurrent.futures.as_completed(futs):
-            try:
-                results.append(f.result())
-            except Exception as e:
-                logging.error("Worker error: %s", e)
-
-    marked = [p for (s, p) in results if s == "marked"]
-    skipped = [p for (s, p) in results if s == "skip"]
-    logging.info("Marked: %d, Skipped: %d", len(marked), len(skipped))
-
-    return 0
+    return crawler.run(
+        root=root,
+        operator=args.operator,
+        workers=args.workers,
+        min_seq=args.min_seq,
+    )
 
 
 if __name__ == "__main__":

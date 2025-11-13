@@ -8,11 +8,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from qc_asset_crawler import sidecar
-
-
-# This used to live in qc_crawl.py; moving it here keeps QC-specific
-# metadata (tool + policy) together.
-TOOL_VERSION = "eikon-qc-marker/1.1.0"
+from qc_asset_crawler import config
 
 
 def now_iso() -> str:
@@ -57,7 +53,7 @@ def make_qc_signature(
         "qc_id": uuid7(),
         "qc_time": now_iso(),
         "operator": operator,
-        "tool_version": TOOL_VERSION,
+        "tool_version": config.get_tool_version(),
         "policy_version": sidecar.get_qc_policy_version(),
         "asset_path": asset_path.as_posix(),
         "asset_id": asset_id,

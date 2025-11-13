@@ -26,6 +26,12 @@ def headers_json() -> Dict[str, str]:
     return header
 
 
+def tracker_health():
+    url = f"{get_trak_base_url()}/server-info/app-version"
+    r = requests.get(url, headers=headers_json(), timeout=15)
+    print(r.text)
+
+
 def tracker_lookup_asset_by_path(path: Path) -> dict:
     url = f"{get_trak_base_url()}/asset/asset-search"
     body = {
