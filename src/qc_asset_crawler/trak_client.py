@@ -26,10 +26,33 @@ def headers_json() -> Dict[str, str]:
     return header
 
 
-def tracker_health():
+def tracker_app_version():
     url = f"{get_trak_base_url()}/server-info/app-version"
-    r = requests.get(url, headers=headers_json(), timeout=15)
-    print(r.text)
+    try:
+        r = requests.get(url, headers=headers_json(), timeout=15)
+        logging.debug(r.text)
+        if not r.ok:
+            status = "unauthorized" if r.status_code in (401, 403) else "error"
+            return {
+                "runningAssembly": None,
+                "environmentName": None,
+                "status": status,
+                "http_code": r.status_code,
+            }
+        data = r.json()
+        return {
+            "runningAssembly": data.get("runningAssembly"),
+            "environmentName": data.get("environmentName"),
+            "status": "ok",
+            "http_code": 200,
+        }
+    except requests.RequestException:
+        return {
+            "runningAssembly": None,
+            "environmentName": None,
+            "status": "error",
+            "http_code": None,
+        }
 
 
 def tracker_lookup_asset_by_path(path: Path) -> dict:
