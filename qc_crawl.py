@@ -13,7 +13,7 @@ import os
 import sys
 import dotenv
 from pathlib import Path
-from qc_asset_crawler import crawler
+from qc_asset_crawler import crawler, sidecar
 
 
 def find_data_file(filename):
@@ -80,6 +80,9 @@ def main():
     crawler.G_SIDECAR_MODE = args.sidecar_mode
     crawler.G_FORCED_RESULT = args.result
     crawler.G_NOTE = args.note
+
+    # keep sidecar module in sync so it knows where to write
+    sidecar.G_SIDECAR_MODE = args.sidecar_mode
 
     root = Path(args.root).resolve()
     return crawler.run(

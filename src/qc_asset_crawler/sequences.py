@@ -61,13 +61,14 @@ def seq_key(p: Path):
     return (p.parent, m.group("base"), m.group("ext"))
 
 
-def group_sequences(files: Iterable[Path]):
+def group_sequences(files: Iterable[Path], min_seq: int = 3):
     """
     Split files into:
+
       - sequences: {(dir, base, ext): [frames...]}
       - singles: [paths not in a long-enough sequence]
 
-    A 'sequence' must have at least 3 frames (tunable).
+    A 'sequence' must have at least `min_seq` frames.
     """
     groups: Dict[Tuple[Path, str, str], List[Path]] = {}
     singles: List[Path] = []
@@ -81,8 +82,8 @@ def group_sequences(files: Iterable[Path]):
                 continue
         singles.append(p)
 
-    # Keep only groups with >=3 frames
-    sequences = {k: sorted(v) for k, v in groups.items() if len(v) >= 3}
+    # Keep only groups with >= min_seq frames
+    sequences = {k: sorted(v) for k, v in groups.items() if len(v) >= min_seq}
     seq_members = {p for vs in sequences.values() for p in vs}
 
     # Any file not in a sequence (or already in singles) is a single
