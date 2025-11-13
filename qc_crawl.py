@@ -15,7 +15,6 @@ import os
 import sys
 import time
 import uuid
-import requests
 import dotenv
 
 from qc_asset_crawler.sequences import (
@@ -25,10 +24,11 @@ from qc_asset_crawler.sequences import (
 )
 
 from qc_asset_crawler import hashing
+from qc_asset_crawler import trak_client
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 
 def find_data_file(filename):
@@ -51,9 +51,8 @@ G_NOTE: Optional[str] = None
 TOOL_VERSION = "eikon-qc-marker/1.1.0"
 QC_POLICY_VERSION = "2025.11.0"
 
+
 # Environment-configurable
-TRAK_BASE_URL = os.environ.get("TRAK_BASE_URL", None)
-X_API_KEY = os.environ.get("TRAK_ASSET_TRACKER_API_KEY", None)
 XATTR_KEY = os.environ.get("QC_XATTR_KEY", "user.eikon.qc")
 HASHCACHE_NAME = os.environ.get("QC_HASHCACHE_NAME", ".qc.hashcache.json")
 SIDE_SUFFIX_FILE = os.environ.get("QC_SIDE_SUFFIX_FILE", ".qc.json")
@@ -72,17 +71,6 @@ def uuid7() -> str:
     t_ms = int(time.time() * 1000).to_bytes(6, "big")
     rand = os.urandom(10)
     return str(uuid.UUID(bytes=t_ms + rand))
-
-
-def headers_json() -> Dict[str, str]:
-    header = {
-        "content-type": "application/json",
-        "cache-control": "no-cache",
-        "accept": "text/plain",
-    }
-    if X_API_KEY:
-        header["x-api-key"] = X_API_KEY
-    return header
 
 
 def normalize_base_ext(base: str, ext: str) -> Tuple[str, str]:
@@ -189,42 +177,6 @@ def set_xattr(path: Path, value: str) -> None:
         pass
 
 
-# ----------------- Tracker API (requests) -----------------
-def tracker_lookup_asset_by_path(path: Path) -> dict:
-    url = f"{TRAK_BASE_URL.rstrip('/')}/asset/asset-search"
-    body = {
-        "searchPage": {"pageSize": 100},
-        "assetSearchType": 2,
-        "includeCustomer": False,
-        "assetPath": path.as_posix(),
-        "tagIds": [],
-    }
-    try:
-        r = requests.post(url, json=body, headers=headers_json(), timeout=15)
-        logging.debug(r.text)
-        if not r.ok:
-            status = "unauthorized" if r.status_code in (401, 403) else "error"
-            return {"asset_id": None, "status": status, "http_code": r.status_code}
-        data = r.json()
-        asset_id = (data.get("items") or [{}])[0].get("asset_id") or data.get(
-            "asset_id"
-        )
-        return {"asset_id": asset_id, "status": "ok", "http_code": 200}
-    except requests.RequestException:
-        return {"asset_id": None, "status": "error", "http_code": None}
-
-
-def tracker_set_qc(asset_id: Optional[str], payload: dict) -> bool:
-    if not asset_id or payload.get("qc_result") == "pending":
-        return False
-    url = f"{TRAK_BASE_URL.rstrip('/')}/assets/{asset_id}/qc"
-    try:
-        r = requests.post(url, json=payload, headers=headers_json(), timeout=15)
-        return bool(r.ok)
-    except requests.RequestException:
-        return False
-
-
 # ----------------- Processing -----------------
 def make_qc_signature(
     asset_path: Path,
@@ -253,7 +205,7 @@ def process_single_file(p: Path, operator: str):
     ch = hashing.blake3_or_sha256_file(p)
     if not needs_reqc(existing, ch):
         return ("skip", p)
-    lookup = tracker_lookup_asset_by_path(p)
+    lookup = trak_client.tracker_lookup_asset_by_path(p)
     asset_id = lookup.get("asset_id")
     result = G_FORCED_RESULT or ("pass" if asset_id else "pending")
     sig = make_qc_signature(p, ch, asset_id, operator, result=result)
@@ -261,7 +213,7 @@ def process_single_file(p: Path, operator: str):
         sig["tracker_status"] = {k: lookup.get(k) for k in ("status", "http_code")}
     write_sidecar(sc, sig)
     set_xattr(p, sig["qc_id"])
-    tracker_set_qc(asset_id, sig)
+    trak_client.tracker_set_qc(asset_id, sig)
     return ("marked", p)
 
 
@@ -295,11 +247,11 @@ def process_sequence(
     nbase, next_ = normalize_base_ext(base, ext)
 
     # Try folder then first file; pick the first successful lookup
-    lookup_dir = tracker_lookup_asset_by_path(dir_path)
+    lookup_dir = trak_client.tracker_lookup_asset_by_path(dir_path)
     asset_id = lookup_dir.get("asset_id")
     lookup_used = lookup_dir
     if not asset_id:
-        lookup_file = tracker_lookup_asset_by_path(files[0])
+        lookup_file = trak_client.tracker_lookup_asset_by_path(files[0])
         asset_id = lookup_file.get("asset_id")
         lookup_used = lookup_file
     result = G_FORCED_RESULT or ("pass" if asset_id else "pending")
@@ -327,7 +279,7 @@ def process_sequence(
     except Exception:
         pass
 
-    tracker_set_qc(asset_id, sig)
+    trak_client.tracker_set_qc(asset_id, sig)
     return ("marked", dir_path / f"{nbase}*.{next_}")
 
 
