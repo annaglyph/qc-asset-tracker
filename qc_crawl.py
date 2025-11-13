@@ -23,8 +23,7 @@ from qc_asset_crawler.sequences import (
     summarize_frames,
 )
 
-from qc_asset_crawler import hashing
-from qc_asset_crawler import trak_client
+from qc_asset_crawler import hashing, trak_client, sidecar
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,14 +48,11 @@ G_NOTE: Optional[str] = None
 
 # ----------------- Config -----------------
 TOOL_VERSION = "eikon-qc-marker/1.1.0"
-QC_POLICY_VERSION = "2025.11.0"
 
 
 # Environment-configurable
 XATTR_KEY = os.environ.get("QC_XATTR_KEY", "user.eikon.qc")
 HASHCACHE_NAME = os.environ.get("QC_HASHCACHE_NAME", ".qc.hashcache.json")
-SIDE_SUFFIX_FILE = os.environ.get("QC_SIDE_SUFFIX_FILE", ".qc.json")
-SIDE_NAME_SEQUENCE = os.environ.get("QC_SIDE_NAME_SEQUENCE", "qc.sequence.json")
 
 
 # ----------------- Utils -----------------
@@ -106,64 +102,6 @@ def save_hashcache(dir_path: Path, cache):
         pass
 
 
-# ----------------- Sidecars -----------------
-def sidecar_path_for_file(p: Path) -> Path:
-    mode = globals().get("G_SIDECAR_MODE", "inline")
-    name = f"{p.name}{SIDE_SUFFIX_FILE}"
-    if mode == "inline":
-        return p.with_suffix(p.suffix + SIDE_SUFFIX_FILE)
-    if mode == "dot":
-        return p.parent / f".{name}"
-    return p.parent / ".qc" / name
-
-
-def sequence_sidecar_path(dir_path: Path) -> Path:
-    mode = globals().get("G_SIDECAR_MODE", "inline")
-    if mode == "inline":
-        return dir_path / SIDE_NAME_SEQUENCE
-    if mode == "dot":
-        return dir_path / f".{SIDE_NAME_SEQUENCE}"
-    return dir_path / ".qc" / SIDE_NAME_SEQUENCE
-
-
-def set_hidden_attribute(path: Path) -> None:
-    mode = globals().get("G_SIDECAR_MODE", "inline")
-    if mode not in ("dot", "subdir"):
-        return
-    try:
-        if sys.platform.startswith("win"):
-            import ctypes
-
-            ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x02)
-        elif sys.platform == "darwin":
-            import subprocess
-
-            subprocess.run(["chflags", "hidden", str(path)], check=False)
-    except Exception:
-        pass
-
-
-def read_sidecar(path: Path):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-
-def write_sidecar(path: Path, data: dict):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-    set_hidden_attribute(path)
-
-
-def needs_reqc(existing, new_content_hash: str) -> bool:
-    if not existing:
-        return True
-    if existing.get("policy_version") != QC_POLICY_VERSION:
-        return True
-    return existing.get("content_hash") != new_content_hash
-
-
 # ----------------- xattrs (best-effort) -----------------
 def set_xattr(path: Path, value: str) -> None:
     try:
@@ -190,7 +128,7 @@ def make_qc_signature(
         "qc_time": now_iso(),
         "operator": operator,
         "tool_version": TOOL_VERSION,
-        "policy_version": QC_POLICY_VERSION,
+        "policy_version": sidecar.get_qc_policy_version(),
         "asset_path": asset_path.as_posix(),
         "asset_id": asset_id,
         "content_hash": content_hash,
@@ -200,10 +138,10 @@ def make_qc_signature(
 
 
 def process_single_file(p: Path, operator: str):
-    sc = sidecar_path_for_file(p)
-    existing = read_sidecar(sc)
+    sc = sidecar.sidecar_path_for_file(p)
+    existing = sidecar.read_sidecar(sc)
     ch = hashing.blake3_or_sha256_file(p)
-    if not needs_reqc(existing, ch):
+    if not sidecar.needs_reqc(existing, ch):
         return ("skip", p)
     lookup = trak_client.tracker_lookup_asset_by_path(p)
     asset_id = lookup.get("asset_id")
@@ -211,7 +149,7 @@ def process_single_file(p: Path, operator: str):
     sig = make_qc_signature(p, ch, asset_id, operator, result=result)
     if result == "pending":
         sig["tracker_status"] = {k: lookup.get(k) for k in ("status", "http_code")}
-    write_sidecar(sc, sig)
+    sidecar.write_sidecar(sc, sig)
     set_xattr(p, sig["qc_id"])
     trak_client.tracker_set_qc(asset_id, sig)
     return ("marked", p)
@@ -220,15 +158,15 @@ def process_single_file(p: Path, operator: str):
 def process_sequence(
     dir_path: Path, base: str, ext: str, files: List[Path], operator: str
 ):
-    sc = sequence_sidecar_path(dir_path)
+    sc = sidecar.sequence_sidecar_path(dir_path)
     cache = load_hashcache(dir_path)
 
     # Reuse cheap fingerprint to avoid rehashing needlessly
     cheap_fp = hashing.cheap_fingerprint(files)
-    existing = read_sidecar(sc)
+    existing = sidecar.read_sidecar(sc)
 
     # If cheap fingerprint hasn't changed and policy unchanged, we can skip deep hashing & QC
-    if existing and existing.get("policy_version") == QC_POLICY_VERSION:
+    if existing and existing.get("policy_version") == sidecar.get_qc_policy_version():
         seq = existing.get("sequence", {})
         if seq.get("cheap_fp") == cheap_fp:
             return ("skip", dir_path / f"{base}*.{ext}")
@@ -236,11 +174,11 @@ def process_sequence(
     # Deep hashing with cache
     seq_hash = hashing.manifest_hash_for_files(files, cache)
     save_hashcache(dir_path, cache)
-    if existing and not needs_reqc(existing, seq_hash):
+    if existing and not sidecar.needs_reqc(existing, seq_hash):
         # But update cheap_fp if missing
         if existing.get("sequence", {}).get("cheap_fp") != cheap_fp:
             existing.setdefault("sequence", {})["cheap_fp"] = cheap_fp
-            write_sidecar(sc, existing)
+            sidecar.write_sidecar(sc, existing)
         return ("skip", dir_path / f"{base}*.{ext}")
 
     # Normalize base/ext for storage
@@ -272,7 +210,7 @@ def process_sequence(
 
     if result == "pending":
         sig["tracker_status"] = {k: lookup_used.get(k) for k in ("status", "http_code")}
-    write_sidecar(sc, sig)
+    sidecar.write_sidecar(sc, sig)
 
     try:
         set_xattr(dir_path, sig["qc_id"])
