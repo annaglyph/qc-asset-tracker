@@ -7,3 +7,5 @@ Thumbs.db:encryptable
 .DS_Store
 .env
 venv/
+README.md-BACKUP
+CONTRIBUTING.md-BACKUP

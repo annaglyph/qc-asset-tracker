@@ -1,143 +1,195 @@
-# QC Asset Crawler – Repository Documentation Bundle
+# Contributing
 
-This repository contains:
-- `README.md` — project overview and usage guide
-- `CONTRIBUTING.md` — developer workflow, code style, and branching policy
-- base Python package structure with `__init__.py` and versioning stub
-- optional developer quality-of-life tooling (pre-commit hooks, linting)
+Welcome to the **QC Asset Tracker** development guide.
+This document describes the project structure, coding standards, workflows, and expectations for making changes.
+
+The goal of this repository is to maintain a fast, deterministic, production-grade QC crawler with clean modular design and predictable behaviour across environments.
 
 ---
 
-## CONTRIBUTING.md
+# 📁 Project Structure
 
-### Overview
-We welcome internal contributions. Keep commits clean and descriptive. Avoid committing generated QC data.
-
-### Branching Model
-- `main` → stable production branch
-- `dev` → integration and testing branch
-- feature branches → `feature/<ticket_or_topic>`
-
-**Example:**
-```
-git checkout -b feature/hashcache-refactor dev
-```
-
-### Commit Conventions
-Follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
-```
-feat: add new image sequence hashing strategy
-fix: handle missing .qc.hashcache.json gracefully
-chore: bump dependencies
-```
-
-### Code Style
-- PEP 8 compliant (enforced by black + flake8)
-- Typing encouraged: use Python 3.10+ type hints
-- Docstrings: Google or NumPy style
-
-**Example:**
-```python
-def scan_path(path: Path) -> list[Path]:
-    """Scan for valid media assets within a directory."""
-    ...
-```
-
-### Testing
-Use pytest with fixtures under `/tests`. Tests should be idempotent and create files only under `/tmp`.
+The project follows a clean, modular layout:
 
 ```
-pytest -v
+src/qc_asset_crawler/
+├── config.py          # Tool-wide configuration (versions, xattr key)
+├── crawler.py         # Main crawl engine (workers, dispatch, coordination)
+├── sequences.py       # Walk filesystem, detect sequences, summarise frames
+├── hashing.py         # cheap_fp, deep hash, manifest hash
+├── hashcache.py       # Read/write .qc.hashcache.json
+├── sidecar.py         # Naming rules, schema + policy versions, read/write helpers
+├── qcstate.py         # QC signature builder (qc_id, timestamps, schema)
+├── trak_client.py     # HTTP client for Trak integration
+└── shims.py           # Entry points for installed CLI commands
 ```
 
-### Pull Requests
-1. Rebase from `dev` before raising PRs.
-2. Run `pre-commit run --all-files`.
-3. Tag maintainers in PR description.
-
-### Versioning
-Semantic versioning (semver) pattern `MAJOR.MINOR.PATCH`. Version lives in:
+Top-level developer scripts:
 ```
-qc_asset_crawler/__init__.py
-```
-```python
-__version__ = "0.1.0"
+qc_crawl.py             # Developer entrypoint (CLI → crawler)
+qc_cleanup.py           # Cleanup utility for sidecars & hashcache
+make_fake_seq.py        # Synthetic sequence generator for testing
 ```
 
-### Linting & Hooks
-Install pre-commit hooks:
+Tests:
+```
+tests/
+├── test_version.py
+└── test_cli_help.py
+```
+
+---
+
+# 🧭 Development Workflow
+
+## 1. Clone and Install
+
 ```bash
-pip install pre-commit && pre-commit install
-```
-`.pre-commit-config.yaml` includes:
-- black
-- flake8
-- isort
-- end-of-file-fixer
-- trailing-whitespace
-
-### Dev Dependencies
-```
+git clone <repo-url>
+cd qc-asset-tracker
+pip install -e .
 pip install -r requirements-dev.txt
-```
-Additions beyond runtime requirements:
-- pytest
-- black
-- flake8
-- pre-commit
-
-### Continuous Integration
-Recommended: GitLab CI YAML pipeline stub (optional):
-```yaml
-stages: [lint, test]
-
-lint:
-  stage: lint
-  script:
-    - pre-commit run --all-files
-
-pytest:
-  stage: test
-  script:
-    - pytest -v
+cp .env.example .env
 ```
 
----
+## 2. Activate pre-commit hooks
 
-## Repository Skeleton
+```bash
+pre-commit install
 ```
-qc-asset-tracker/
-├─ qc_crawl.py                   # main CLI
-├─ qc_cleanup.py                   # developer utility: remove sidecars & hash cache
-├─ make_fake_seq.py              # developer utility: create synthetic image sequences
-│
-├─ requirements.txt
-├─ requirements-dev.txt
-├─ .env.example
-├─ .gitignore
-├─ .flake8
-├─ .pre-commit-config.yaml
-│
-├─ src/
-│   └─ qc_asset_crawler/
-│       ├─ __init__.py           # package version
-│       └─ shims.py              # console entry point wrappers
-│
-├─ tests/
-│   ├─ test_version.py
-│   └─ test_cli_help.py
-│
-├─ README.md
-└─ CONTRIBUTING.md
+
+Run on demand:
+
+```bash
+pre-commit run --all-files
+```
+
+## 3. Running the crawler locally
+
+```bash
+python qc_crawl.py --log DEBUG /path/to/root
+```
+
+Or via installed entrypoint:
+
+```bash
+qc-crawl --sidecar-mode subdir /path
+```
+
+## 4. Running tests
+
+```bash
+pytest
 ```
 
 ---
 
-## Next Steps
-- Copy README and CONTRIBUTING into your repo root.
-- Initialize pre-commit: `pre-commit install`
-- Optionally add a `CHANGELOG.md` for versioned releases.
+# 🧱 Coding Standards
+
+## Python Style
+- Code is formatted with **Black**.
+- Linting is enforced via **flake8**.
+- Imports should be grouped: stdlib → third-party → internal modules.
+
+## Naming
+- Modules use `snake_case`.
+- Variables use meaningful, descriptive names (avoid one-letter names unless trivial e.g. `i`, `f`).
+- Constants use `UPPER_SNAKE_CASE`.
+- CLI flags should be short, unambiguous, and lowercase.
+
+## Modules Should Have Single Responsibilities
+- `sequences.py` → grouping + summaries
+- `hashing.py` → content hashing
+- `hashcache.py` → cache load/save
+- `sidecar.py` → file naming + schema
+- `qcstate.py` → QC metadata
+- `crawler.py` → orchestration
+- `trak_client.py` → external HTTP calls
+
+## Sidecar Schema
+All sidecars must include:
+- `qc_id` (UUID7)
+- `qc_time` (UTC ISO8601)
+- `operator`
+- `tool_version`
+- `policy_version`
+- `schema_version`
+- `content_hash`
+- `qc_result`
+- `sequence` (always present; `null` for single-file assets)
 
 ---
 
-_This bundle provides a ready-to-push internal repo setup consistent with EIKON tooling standards._
+# 🔄 Git Workflow
+
+## Commit Messages
+Use conventional commits where possible:
+
+- `feat:` new feature (e.g., `feat: add schema_version to sidecar`)
+- `fix:` bug fixes
+- `refactor:` structural improvements without behaviour change
+- `chore:` tooling or housekeeping
+
+## Branching
+- `main` is stable.
+- Feature work is normally done in branches:
+  - `feature/<name>`
+  - `refactor/<name>`
+  - `bugfix/<name>`
+
+## Pull Requests
+A good PR includes:
+- Clear description of the problem and the solution
+- Scope limited to one responsibility
+- Green tests & pre-commit
+- Updated docs if behaviour changes
+
+---
+
+# 🧪 Testing Guidelines
+
+Tests should:
+- Avoid filesystem dependencies unless absolutely necessary
+- Prefer using temporary directories (`tmp_path` fixture in pytest)
+- Assert only on documented behaviour, not internal implementation
+- Cover sequence detection, hashing, sidecars, and cleanup behaviour
+
+Example:
+
+```python
+def test_inline_sidecar_creation(tmp_path):
+    asset = tmp_path / "test.exr"
+    asset.write_bytes(b"dummy")
+
+    # Run a minimal crawl
+    from qc_asset_crawler import crawler
+    qc = crawler.process_single_file(asset, operator="test")
+
+    assert qc is not None
+```
+
+---
+
+# 📦 Packaging
+
+This project uses `pyproject.toml` with Setuptools.
+Installed entrypoints are exposed via:
+
+```toml
+[project.scripts]
+qc-crawl = "qc_asset_crawler.shims:crawl"
+qc-clean = "qc_asset_crawler.shims:clean"
+make-fake-seq = "qc_asset_crawler.shims:fake_seq"
+```
+
+---
+
+# 🤝 Contributing
+
+1. Create a new branch
+2. Make incremental changes (small, reviewable steps)
+3. Ensure tests and pre-commit hooks pass
+4. Update documentation if needed
+5. Open a Pull Request
+
+Thank you for contributing to the QC Asset Tracker!
