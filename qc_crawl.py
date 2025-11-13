@@ -9,7 +9,6 @@ qc-asset-crawler
 """
 import argparse
 import concurrent.futures
-import json
 import logging
 import os
 import sys
@@ -23,7 +22,7 @@ from qc_asset_crawler.sequences import (
     summarize_frames,
 )
 
-from qc_asset_crawler import hashing, trak_client, sidecar
+from qc_asset_crawler import hashing, trak_client, sidecar, hashcache
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,7 +51,6 @@ TOOL_VERSION = "eikon-qc-marker/1.1.0"
 
 # Environment-configurable
 XATTR_KEY = os.environ.get("QC_XATTR_KEY", "user.eikon.qc")
-HASHCACHE_NAME = os.environ.get("QC_HASHCACHE_NAME", ".qc.hashcache.json")
 
 
 # ----------------- Utils -----------------
@@ -81,25 +79,6 @@ def safe_rel(path: Path, root: Path) -> str:
         return path.relative_to(root).as_posix()
     except Exception:
         return path.as_posix()
-
-
-# ----------------- Hashing -----------------
-def load_hashcache(dir_path: Path):
-    f = dir_path / HASHCACHE_NAME
-    if not f.exists():
-        return {}
-    try:
-        return json.loads(f.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def save_hashcache(dir_path: Path, cache):
-    f = dir_path / HASHCACHE_NAME
-    try:
-        f.write_text(json.dumps(cache, indent=2, sort_keys=True), encoding="utf-8")
-    except Exception:
-        pass
 
 
 # ----------------- xattrs (best-effort) -----------------
@@ -159,7 +138,7 @@ def process_sequence(
     dir_path: Path, base: str, ext: str, files: List[Path], operator: str
 ):
     sc = sidecar.sequence_sidecar_path(dir_path)
-    cache = load_hashcache(dir_path)
+    cache = hashcache.load_hashcache(dir_path)
 
     # Reuse cheap fingerprint to avoid rehashing needlessly
     cheap_fp = hashing.cheap_fingerprint(files)
@@ -173,7 +152,7 @@ def process_sequence(
 
     # Deep hashing with cache
     seq_hash = hashing.manifest_hash_for_files(files, cache)
-    save_hashcache(dir_path, cache)
+    hashcache.save_hashcache(dir_path, cache)
     if existing and not sidecar.needs_reqc(existing, seq_hash):
         # But update cheap_fp if missing
         if existing.get("sequence", {}).get("cheap_fp") != cheap_fp:

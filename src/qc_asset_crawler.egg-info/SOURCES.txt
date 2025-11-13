@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/qc_asset_crawler/__init__.py
+src/qc_asset_crawler/hashcache.py
 src/qc_asset_crawler/hashing.py
 src/qc_asset_crawler/sequences.py
 src/qc_asset_crawler/shims.py
