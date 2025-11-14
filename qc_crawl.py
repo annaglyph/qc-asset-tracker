@@ -52,6 +52,11 @@ def main():
         help="Minimum files to treat as a sequence",
     )
     ap.add_argument(
+        "--asset-id",
+        help="Optional Trak asset_id to apply to all sidecars in this run",
+    )
+
+    ap.add_argument(
         "--sidecar-mode",
         choices=["inline", "dot", "subdir"],
         default="subdir",
@@ -90,6 +95,7 @@ def main():
         operator=args.operator,
         workers=args.workers,
         min_seq=args.min_seq,
+        asset_id=args.asset_id,
     )
 
 

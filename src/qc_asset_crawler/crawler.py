@@ -51,19 +51,30 @@ def set_xattr(path: Path, value: str) -> None:
 
 
 # ----------------- Processing -----------------
-def process_single_file(p: Path, operator: str):
+def process_single_file(
+    p: Path,
+    operator: str,
+    asset_id: Optional[str] = None,
+):
     sc = sidecar.sidecar_path_for_file(p)
     existing = sidecar.read_sidecar(sc)
     ch = hashing.blake3_or_sha256_file(p)
     if not sidecar.needs_reqc(existing, ch):
         return ("skip", p)
-    lookup = trak_client.tracker_lookup_asset_by_path(p)
-    asset_id = lookup.get("asset_id")
-    result = G_FORCED_RESULT or ("pass" if asset_id else "pending")
+    # prefer explicit asset_id from CLI, otherwise fall back to Trak lookup
+    lookup = {}
+    effective_asset_id = asset_id  # function parameter
+
+    if not effective_asset_id:
+        lookup = trak_client.tracker_lookup_asset_by_path(p)
+        effective_asset_id = lookup.get("asset_id")
+
+    result = G_FORCED_RESULT or ("pass" if effective_asset_id else "pending")
+
     sig = qcstate.make_qc_signature(
         p,
         ch,
-        asset_id,
+        effective_asset_id,
         operator,
         result=result,
         note=G_NOTE,
@@ -78,7 +89,12 @@ def process_single_file(p: Path, operator: str):
 
 
 def process_sequence(
-    dir_path: Path, base: str, ext: str, files: List[Path], operator: str
+    dir_path: Path,
+    base: str,
+    ext: str,
+    files: List[Path],
+    operator: str,
+    asset_id: Optional[str] = None,
 ):
     sc = sidecar.sequence_sidecar_path(dir_path)
     cache = hashcache.load_hashcache(dir_path)
@@ -106,19 +122,30 @@ def process_sequence(
     # Normalize base/ext for storage
     nbase, next_ = normalize_base_ext(base, ext)
 
-    # Try folder then first file; pick the first successful lookup
-    lookup_dir = trak_client.tracker_lookup_asset_by_path(dir_path)
-    asset_id = lookup_dir.get("asset_id")
-    lookup_used = lookup_dir
-    if not asset_id:
-        lookup_file = trak_client.tracker_lookup_asset_by_path(files[0])
-        asset_id = lookup_file.get("asset_id")
-        lookup_used = lookup_file
-    result = G_FORCED_RESULT or ("pass" if asset_id else "pending")
+    # Decide which asset_id to use:
+    #  - prefer explicit asset_id from CLI
+    #  - otherwise fall back to Trak lookup (dir, then first file)
+    effective_asset_id = asset_id
+    lookup_used = None
+
+    if not effective_asset_id:
+        # Try the directory path first
+        lookup_dir = trak_client.tracker_lookup_asset_by_path(dir_path)
+        effective_asset_id = lookup_dir.get("asset_id")
+        lookup_used = lookup_dir
+
+        # If that failed, try the first file in the sequence
+        if not effective_asset_id and files:
+            lookup_file = trak_client.tracker_lookup_asset_by_path(files[0])
+            effective_asset_id = lookup_file.get("asset_id")
+            lookup_used = lookup_file
+
+    result = G_FORCED_RESULT or ("pass" if effective_asset_id else "pending")
+
     sig = qcstate.make_qc_signature(
         dir_path,
         seq_hash,
-        asset_id,
+        effective_asset_id,
         operator,
         result=result,
         note=G_NOTE,
@@ -155,6 +182,7 @@ def run(
     operator: str,
     workers: int,
     min_seq: int,
+    asset_id: Optional[str] = None,
 ) -> int:
     files = list(iter_media(root))
     sequences_map, singles = group_sequences(files, min_seq=min_seq)
@@ -163,10 +191,26 @@ def run(
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
         futs = [
-            ex.submit(process_sequence, d, base, ext, members, operator)
+            ex.submit(
+                process_sequence,
+                d,
+                base,
+                ext,
+                members,
+                operator,
+                asset_id,
+            )
             for (d, base, ext), members in sequences_map.items()
         ]
-        futs += [ex.submit(process_single_file, p, operator) for p in singles]
+        futs += [
+            ex.submit(
+                process_single_file,
+                p,
+                operator,
+                asset_id,
+            )
+            for p in singles
+        ]
         for f in concurrent.futures.as_completed(futs):
             try:
                 results.append(f.result())
