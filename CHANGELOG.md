@@ -15,7 +15,7 @@ and this project uses **Unreleased** until we tag a real release.
   - `"modified"` — content hash changed (new frames, removed frames, edits)
   - `"missing"` — media no longer present on disk (single-file or whole sequence)
 - **Sequence-aware missing detection**
-  - Sequences are now marked `"missing"` when all frames disappear but the sidecar remains.
+  - Sequences are now marked `"missing"` when all frames or single file(s) disappear but the sidecar remains.
   - Uses `base` + `ext` to identify expected frame names.
 - **QC event tracking (`last_valid_qc_id`, `last_valid_qc_time`)**
   - Operator QC (`--result`) now registers a new explicit QC event.
