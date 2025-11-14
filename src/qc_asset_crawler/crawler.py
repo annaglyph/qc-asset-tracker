@@ -52,6 +52,143 @@ def set_xattr(path: Path, value: str) -> None:
         pass
 
 
+def _sequence_media_exists(seq_root: Path, seq_info: dict) -> bool:
+    """
+    Return True if there appear to be any media frames left for this sequence.
+
+    We use the sequence metadata:
+      - base: filename prefix (without trailing dot)
+      - ext: extension without leading dot (e.g. 'tif')
+    and look for files in seq_root that match that (loosely).
+    """
+    if not seq_root.exists() or not seq_root.is_dir():
+        return False
+
+    base = (seq_info.get("base") or "").strip()
+    ext = (seq_info.get("ext") or "").lstrip(".").lower()
+
+    expected_suffix = f".{ext}" if ext else None
+
+    try:
+        for child in seq_root.iterdir():
+            if not child.is_file():
+                continue
+
+            if expected_suffix and child.suffix.lower() != expected_suffix:
+                continue
+
+            if base and not child.name.startswith(base):
+                continue
+
+            # Found at least one plausible frame
+            return True
+    except FileNotFoundError:
+        return False
+
+    return False
+
+
+def _iter_sidecars_under_root(root: Path):
+    """
+    Yield all known QC sidecar paths under root.
+
+    We mirror qc_cleanup.py / README patterns:
+      - Inline & dot file sidecars: *.qc.json, .*.qc.json
+      - Subdir sidecars: .qc/file.ext.qc.json  (also match *.qc.json)
+      - Sequence sidecars: e.g. sequence.qc.json, .sequence.qc.json
+        (name comes from sidecar.get_side_name_sequence()).
+    """
+    seen = set()
+
+    # All per-file sidecars (inline, dot, subdir) end with .qc.json
+    for p in root.rglob("*.qc.json"):
+        if p not in seen:
+            seen.add(p)
+            yield p
+
+    # Sequence sidecars: sequence.qc.json / .sequence.qc.json (plus subdir variants)
+    seq_name = sidecar.get_side_name_sequence()
+    for name in (seq_name, f".{seq_name}"):
+        for p in root.rglob(name):
+            if p not in seen:
+                seen.add(p)
+                yield p
+
+
+def mark_missing_content(root: Path) -> int:
+    """
+    For any sidecar under `root` whose media no longer exists on disk,
+    set content_state = "missing" (without changing qc_id / qc_result /
+    last_valid_qc_*).
+
+    Singles:
+      - asset_path points to the media file; we mark missing when the file is gone.
+
+    Sequences:
+      - asset_path points to the sequence directory; we mark missing when there
+        are no frames left in that directory matching the recorded base/ext.
+    """
+    missing_count = 0
+    root = root.resolve()
+
+    for sc in _iter_sidecars_under_root(root):
+        data = sidecar.read_sidecar(sc)
+        if not data:
+            continue
+
+        asset_path_str = data.get("asset_path")
+        if not asset_path_str:
+            continue
+
+        ap = Path(asset_path_str)
+
+        # If the asset_path is relative, treat it as relative to the crawl root.
+        if not ap.is_absolute():
+            ap = (root / ap).resolve()
+        else:
+            ap = ap.resolve()
+
+        # Optionally ignore stuff clearly outside the root, to be safe.
+        try:
+            _ = ap.relative_to(root)
+        except Exception:
+            continue
+
+        seq_info = data.get("sequence")
+
+        # --- Sequence sidecars: asset_path is the sequence directory ---
+        if isinstance(seq_info, dict) and seq_info:
+            seq_root = ap if ap.is_dir() else ap.parent
+
+            media_exists = _sequence_media_exists(seq_root, seq_info)
+
+            if media_exists:
+                # There are still frames; nothing to do.
+                continue
+
+            # Already marked as missing? No need to rewrite.
+            if data.get("content_state") == "missing":
+                continue
+
+            data["content_state"] = "missing"
+            sidecar.write_sidecar(sc, data)
+            missing_count += 1
+            continue
+
+        # --- Single-file sidecars: asset_path is the media file ---
+        if ap.exists():
+            continue
+
+        if data.get("content_state") == "missing":
+            continue
+
+        data["content_state"] = "missing"
+        sidecar.write_sidecar(sc, data)
+        missing_count += 1
+
+    return missing_count
+
+
 # ----------------- Processing -----------------
 
 
@@ -287,9 +424,11 @@ def process_sequence(
         prev_last_valid_qc_time = None
 
     if G_FORCED_RESULT is not None and sig.get("qc_result") != "pending":
+        # this is a new human QC event
         sig["last_valid_qc_id"] = sig["qc_id"]
         sig["last_valid_qc_time"] = sig["qc_time"]
     else:
+        # carry forward from existing
         if prev_last_valid_qc_id is not None:
             sig["last_valid_qc_id"] = prev_last_valid_qc_id
         if prev_last_valid_qc_time is not None:
@@ -377,5 +516,10 @@ def run(
     marked = [p for (s, p) in results if s == "marked"]
     skipped = [p for (s, p) in results if s == "skip"]
     logging.info("Marked: %d, Skipped: %d", len(marked), len(skipped))
+
+    # Second pass: mark sidecars whose media has gone missing
+    missing = mark_missing_content(root)
+    if missing:
+        logging.info("Marked missing: %d", missing)
 
     return 0
