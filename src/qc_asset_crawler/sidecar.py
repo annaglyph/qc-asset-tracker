@@ -73,8 +73,33 @@ def read_sidecar(path: Path):
 
 
 def write_sidecar(path: Path, data: dict):
+    """
+    Atomically write a sidecar JSON file.
+
+    We write to a temporary file, fsync it, then os.replace() it over the
+    destination. This prevents corrupted JSON on crash/network drop.
+
+    We then reapply hidden attributes (Windows) to the final file.
+    """
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+
+    # Write atomic temp file
+    with tmp.open("w", encoding="utf-8", newline="\n") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except OSError:
+            # Network FS: fsync may not be supported
+            pass
+
+    # Atomic replace
+    os.replace(tmp, path)
+
+    # Reapply hidden flag
     set_hidden_attribute(path)
 
 

@@ -28,16 +28,33 @@ def load_hashcache(dir_path: Path) -> dict[str, Any]:
 
 def save_hashcache(dir_path: Path, cache: Mapping[str, Any]) -> None:
     """
-    Persist the hash cache JSON for a directory.
+    Persist the hash cache JSON for a directory atomically.
 
-    Silently ignores I/O errors to keep the crawler non-fatal.
+    Best-effort only — failures should never kill the crawl.
     """
-    f = dir_path / get_hashcache_name()
+    path = Path(dir_path) / get_hashcache_name()
+    tmp = path.with_suffix(path.suffix + ".tmp")
+
     try:
-        f.write_text(
-            json.dumps(cache, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write to temp file
+        with tmp.open("w", encoding="utf-8", newline="\n") as f:
+            json.dump(cache, f, indent=2, sort_keys=True)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+
+        # Atomic promotion
+        os.replace(tmp, path)
+
     except Exception:
-        # Best-effort only; don't kill the crawl if cache can't be written
-        pass
+        # Best-effort: if anything goes wrong, just abandon
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
+        return
