@@ -6,7 +6,7 @@ and this project uses **Unreleased** until we tag a real release.
 
 ---------------------------------
 
-## **[Unreleased] – 2025-11-14**
+## **[Unreleased] – 2025-11-17**
 
 ### Added
 - **Full integration test for `crawler.run()`**, covering:
