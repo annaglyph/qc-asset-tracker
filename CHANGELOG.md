@@ -4,7 +4,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses **Unreleased** until we tag a real release.
 
----
+---------------------------------
+
+## **[Unreleased] – 2025-11-14**
+
+### Added
+- **Full integration test for `crawler.run()`**, covering:
+  - Sequence + single-file processing
+  - Sidecar writing
+  - QC signature creation
+  - Trak posting
+  - Interaction between hash cache, cheap fingerprinting, and summarisation
+- New **unit tests** for:
+  - `process_single_file` and `process_sequence` sticky `asset_id` behaviour
+  - Correct handling of Trak failures (401/404) without clearing existing `asset_id`
+  - Ensuring `content_state` transitions work as expected on re-render
+- Added **comprehensive sequence helper tests**:
+  - `is_sequence_candidate`
+  - `seq_key`
+  - `group_sequences`
+  - `summarize_frames` (holes, ranges, pad, invalid names)
+
+### Changed
+- **Improved `content_state` semantics:**
+  - `"new"` is now used for first-seen content
+  - `"modified"` only used when previous content existed and the hash changed
+  - `"unchanged"` preserved where applicable
+- **`asset_id` is now sticky:**
+  - Existing sidecar `asset_id` is preserved when Trak is unavailable or responds without an asset match
+  - Only overridden by CLI `--asset-id` or successful Trak lookup
+- **Updated crawler logic in both single-file and sequence workflows to use the new decision-tree:**
+  - CLI override → Trak → existing sidecar → null
+
+### Improved
+- Hardened crawler behaviour to avoid:
+  - Clearing metadata when Trak is offline
+  - Marking first-seen content as `"modified"`
+  - Losing historical linkage between SAN content and Trak
+- Test suite now includes >30 passing tests and covers:
+  - Sequence detection
+  - Hashcache behaviour
+  - QC summary output
+  - Sticky asset-ID logic
+  - Integration of the entire crawler pipeline
+
+### Notes
+
+- README update pending to reflect new `content_state` semantics and sticky `asset_id` behaviour.
+- Trak integration tests deferred until new API endpoints (POST sidecar & path search) are available.
+
+---------------------------------
 
 ## **[Unreleased] – 2025-11-14**
 
@@ -47,6 +96,8 @@ and this project uses **Unreleased** until we tag a real release.
 - Improved logging:
   - `"Marked missing: N"` summary at end of crawl
   - Clearer differentiation between marked vs skipped assets
+
+---------------------------------
 
 ## **[Unreleased] – 2025-11-13**
 

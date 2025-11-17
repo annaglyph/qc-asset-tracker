@@ -1,8 +1,8 @@
 # QC Asset Tracker
 
-A fast, deterministic asset-scanning tool for generating QC sidecars, hashing media, detecting image sequences, and optionally integrating with Trak for asset registration.
+A fast, deterministic asset-scanning tool for generating QC sidecars, hashing media, detecting image sequences, summarising QC state, and optionally integrating with Trak for asset registration.
 
-Designed for high‑volume SAN/VFX environments, the QC Asset Tracker walks a directory tree, identifies media assets, computes fingerprints and hashes, creates structured sidecar metadata, and supports re‑runs via per‑directory hash caching.
+Designed for high‑volume SAN environments, the QC Asset Tracker walks a directory tree, identifies media assets, computes fingerprints and hashes, creates structured sidecar metadata, and supports re‑runs via per‑directory hash caching.
 
 This repository includes:
 - A modular Python package (`qc_asset_crawler`) containing all crawler logic.
@@ -10,6 +10,7 @@ This repository includes:
 - Utility scripts:
   - `qc_cleanup.py` – remove QC artifacts for a clean re‑run.
   - `make_fake_seq.py` – generate synthetic EXR/DPX/TIFF sequences for testing.
+  - `qc-summary` – human-readable summary tool with per-directory (`--by-dir`) mode.
 
 ---
 
@@ -22,6 +23,9 @@ This repository includes:
 - 🚀 **Multithreaded crawling** with per-directory hash caching
 - 🔗 Optional **Trak integration** (lookup & QC result posting)
 - 🧹 **Cleanup utility** to remove all QC artifacts
+- ⚙️ Deterministic + restart-safe thanks to per-directory hash caches
+- 📊 **Human-readable summaries** via `qc-summary` (directory mode, roll-up mode)
+- 🏷️ **Sticky asset IDs**: asset_id is preserved across runs unless explicitly overridden or corrected by Trak
 
 ---
 
@@ -240,6 +244,24 @@ Removes:
 - Sequence sidecars (`qc.sequence.json`, `.qc.sequence.json`)
 - Hash cache (`.qc.hashcache.json`)
 - Subdir (`.qc/`) folders
+
+---
+
+## Test Suite
+
+The project includes a full pytest suite covering:
+
+- Sequence detection
+- Summarisation and roll-ups
+- Hashcache load/save
+- Sticky asset-ID behaviour on re-renders
+- Crawler integration (sequences + singles)
+
+Run tests:
+
+```bash
+pytest
+```
 
 ---
 

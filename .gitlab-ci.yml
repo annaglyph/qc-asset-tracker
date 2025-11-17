@@ -1,0 +1,31 @@
+image: python:3.14-slim
+
+stages:
+  - lint
+  - test
+
+variables:
+  PYTHONUNBUFFERED: "1"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  key: "$CI_JOB_NAME"
+  paths:
+    - .cache/pip
+
+default:
+  before_script:
+    - python --version
+    - pip install --upgrade pip
+    - pip install -r requirements.txt
+    - pip install -r requirements-dev.txt
+
+lint:
+  stage: lint
+  script:
+    - pre-commit run --all-files --show-diff-on-failure
+
+tests:
+  stage: test
+  script:
+    - pytest --maxfail=1 --disable-warnings -q
