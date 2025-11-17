@@ -165,21 +165,47 @@ All sidecars follow a unified schema containing:
 
 ```json
 {
-  "qc_id": "019a7e41-e94e-724f-9b36-5ca4918a7921",
-  "qc_time": "2025-11-13T17:27:20.142585+00:00",
-  "qc_result": "pending",
-  "notes": "",
+  "asset_id": "12345",
+  "asset_path": "//Mac/Shared/jobs/running_man/vfx/renders/feature/german/r2/dcin/xyz/2d/inserts/mono/4096x1716",
 
-  "operator": "rsorenson",
-  "tool_version": "eikon-qc-marker/1.1.0",
+  "content_hash": "blake2b:f8e57495d797e14961d14d69847d5ccb641a08f6021f6cb0d10af24af914b1f2",
+  "content_state": "modified",
+
+  "last_valid_qc_id": "019a9227-2cb7-7015-91aa-518d1c14796b",
+  "last_valid_qc_time": "2025-11-17T14:10:32.247275+00:00",
+
+  "notes": "",
+  "operator": "night-crawler",
+
   "policy_version": "2025.11.0",
+
+  "prev_content_hash": "blake2b:f0c53dbf84fa5d022ead3d2b9e3d1ad6a295c17ef7e07b39b15f118e5ebd10cd",
+
+  "qc_id": "019a9227-2cb7-7015-91aa-518d1c14796b",
+  "qc_result": "pending",
+  "qc_time": "2025-11-17T14:11:48.955360+00:00",
+
   "schema_version": "1.0.0",
 
-  "asset_id": null,
-  "asset_path": "/jobs/running_man/mastering/dcp/ov/363783_ISDCF-Audio_TST_F_EN-EN-EN-CCAP_OV_71_2K_EKN_20250128_EKN_SMPTE_OV/dcp/ISDCF-Audio_TST_EN_ccap_smpte_unenc_sub.mxf",
-  "content_hash": "blake3:56d952b4...",
+  "sequence": {
+    "base": "running-man_r2_german",
+    "cheap_fp": {
+      "bytes": 0,
+      "files": 1038,
+      "newest_mtime": 1762949063
+    },
+    "ext": "tif",
+    "first": "running-man_r2_german.17726.tif",
+    "frame_count": 1038,
+    "frame_max": 198920,
+    "frame_min": 17726,
+    "holes": 180157,
+    "last": "running-man_r2_german.198920.tif",
+    "pad": 5,
+    "range_count": 4
+  },
 
-  "sequence": null,
+  "tool_version": "eikon-qc-marker/1.1.0",
 
   "tracker_status": {
     "http_code": 401,
