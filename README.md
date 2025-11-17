@@ -123,66 +123,19 @@ All sidecars follow a unified schema containing:
 
 ```json
 {
-  "qc_id": "018e711a-5c5d-7e2c-b3f1-7b4f0ffb4a91",
-  "qc_time": "2025-11-13T10:21:55.123456Z",
-  "qc_result": "pass",
-  "notes": "Looks good",
-
-  "operator": "rwetherell",
-  "tool_version": "eikon-qc-marker/1.1.0",
-  "policy_version": "2025.11.0",
-  "schema_version": "1.0.0",
-
-  "asset_id": "123456",
-  "asset_path": "/jobs/running_man/vfx/renders/feature/german/r2/dcin/xyz/2d/inserts/mono/4096x1716",
-  "content_hash": "blake3:8f086ab8...",
-
-  "sequence": {
-    "base": "running-man_r2_german",
-    "cheap_fp": {
-      "bytes": 0,
-      "files": 1033,
-      "newest_mtime": 1762949063
-    },
-    "ext": "tif",
-    "first": "running-man_r2_german.177267.tif",
-    "frame_count": 1033,
-    "frame_max": 198920,
-    "frame_min": 177267,
-    "holes": 20621,
-    "last": "running-man_r2_german.198920.tif",
-    "pad": 6,
-    "range_count": 3
-  },
-
-  "tracker_status": {
-    "http_code": 400,
-    "status": "ok"
-}
-```
-
-### Example – Single File Sidecar
-
-```json
-{
   "asset_id": "12345",
   "asset_path": "//Mac/Shared/jobs/running_man/vfx/renders/feature/german/r2/dcin/xyz/2d/inserts/mono/4096x1716",
 
   "content_hash": "blake2b:f8e57495d797e14961d14d69847d5ccb641a08f6021f6cb0d10af24af914b1f2",
-  "content_state": "modified",
-
-  "last_valid_qc_id": "019a9227-2cb7-7015-91aa-518d1c14796b",
-  "last_valid_qc_time": "2025-11-17T14:10:32.247275+00:00",
+  "content_state": "modified",                      /* new | modified | unchanged */
 
   "notes": "",
   "operator": "night-crawler",
 
   "policy_version": "2025.11.0",
 
-  "prev_content_hash": "blake2b:f0c53dbf84fa5d022ead3d2b9e3d1ad6a295c17ef7e07b39b15f118e5ebd10cd",
-
   "qc_id": "019a9227-2cb7-7015-91aa-518d1c14796b",
-  "qc_result": "pending",
+  "qc_result": "pending",                           /* pending | pass | fail */
   "qc_time": "2025-11-17T14:11:48.955360+00:00",
 
   "schema_version": "1.0.0",
@@ -206,6 +159,50 @@ All sidecars follow a unified schema containing:
   },
 
   "tool_version": "eikon-qc-marker/1.1.0",
+
+  // The key/values below may not be present when the initial sidecar is created by a nightly crawl.
+
+  "last_valid_qc_id": "019a9227-2cb7-7015-91aa-518d1c14796b",
+  "last_valid_qc_time": "2025-11-17T14:10:32.247275+00:00",
+  "prev_content_hash": "blake2b:f0c53dbf84fa5d022ead3d2b9e3d1ad6a295c17ef7e07b39b15f118e5ebd10cd"
+
+  "tracker_status": {
+    "http_code": 401,
+    "status": "unauthorized"
+  }
+}
+```
+
+### Example – Single File Sidecar
+
+```json
+{
+  "asset_id": "12345",
+  "asset_path": "//Mac/Shared/jobs/running_man/vfx/renders/feature/german/r2/dcin/xyz/2d/inserts/mono/4096x1716",
+
+  "content_hash": "blake2b:f8e57495d797e14961d14d69847d5ccb641a08f6021f6cb0d10af24af914b1f2",
+  "content_state": "modified",                      /* new | modified | unchanged */
+
+  "notes": "",
+  "operator": "night-crawler",
+
+  "policy_version": "2025.11.0",
+
+  "qc_id": "019a9227-2cb7-7015-91aa-518d1c14796b",
+  "qc_result": "pending",                           /* pending | pass | fail */
+  "qc_time": "2025-11-17T14:11:48.955360+00:00",
+
+  "schema_version": "1.0.0",
+
+  "sequence": null,
+
+  "tool_version": "eikon-qc-marker/1.1.0",
+
+  // The key/values below may not be present when the initial sidecar is created by a nightly crawl.
+
+  "last_valid_qc_id": "019a9227-2cb7-7015-91aa-518d1c14796b",
+  "last_valid_qc_time": "2025-11-17T14:10:32.247275+00:00",
+  "prev_content_hash": "blake2b:f0c53dbf84fa5d022ead3d2b9e3d1ad6a295c17ef7e07b39b15f118e5ebd10cd",
 
   "tracker_status": {
     "http_code": 401,

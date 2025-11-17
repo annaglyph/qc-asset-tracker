@@ -220,13 +220,20 @@ def process_single_file(
     if G_FORCED_RESULT is None and not sidecar.needs_reqc(existing, ch):
         return ("skip", p)
 
-    # Prefer explicit asset_id from CLI, otherwise fall back to Trak lookup
-    lookup = {}
-    effective_asset_id = asset_id  # function parameter wins if provided
+    # Prefer explicit asset_id from CLI, then Trak lookup, then existing sidecar
+    existing_asset_id = existing.get("asset_id") if existing else None
+    lookup: dict = {}
+    effective_asset_id = asset_id  # CLI parameter wins if provided
 
     if not effective_asset_id:
         lookup = trak_client.tracker_lookup_asset_by_path(p)
-        effective_asset_id = lookup.get("asset_id")
+        trak_asset_id = lookup.get("asset_id")
+        if trak_asset_id:
+            # Trak gave us something – treat that as canonical
+            effective_asset_id = trak_asset_id
+        else:
+            # Trak had no idea (e.g. 401/404) – keep whatever we had before
+            effective_asset_id = existing_asset_id
 
     # Default behaviour for Option A:
     # - No forced result: always "pending" when we (re)write a sidecar.
@@ -248,8 +255,13 @@ def process_single_file(
         sig["qc_id"] = existing["qc_id"]
 
     # --- content_state + prev_content_hash ---
+    is_new_asset = existing is None
+
     if content_changed:
-        sig["content_state"] = "modified"
+        # First time we've ever seen this path → mark as "new"
+        # Otherwise, it's a genuine modification of previously-seen content.
+        sig["content_state"] = "new" if is_new_asset else "modified"
+
         if existing_content_hash is not None:
             sig["prev_content_hash"] = existing_content_hash
     else:
@@ -370,22 +382,38 @@ def process_sequence(
     nbase, next_ = normalize_base_ext(base, ext)
 
     # Decide which asset_id to use:
-    # - prefer explicit asset_id from CLI
-    # - otherwise fall back to Trak lookup (dir, then first file)
+    existing = sidecar.read_sidecar(sc)
+    existing_content_hash = existing.get("content_hash") if existing else None
+
+    operator_forced = G_FORCED_RESULT is not None
+
+    # ... cheap_fp / hashing / content_changed logic ...
+
+    # Prefer explicit asset_id from CLI, then Trak directory/file lookup, then existing
+    existing_asset_id = existing.get("asset_id") if existing else None
     effective_asset_id = asset_id
     lookup_used = None
 
     if not effective_asset_id:
         # Try the directory path first
         lookup_dir = trak_client.tracker_lookup_asset_by_path(dir_path)
-        effective_asset_id = lookup_dir.get("asset_id")
+        trak_asset_id = lookup_dir.get("asset_id")
         lookup_used = lookup_dir
 
-        # If that failed, try the first file in the sequence
-        if not effective_asset_id and files:
-            lookup_file = trak_client.tracker_lookup_asset_by_path(files[0])
-            effective_asset_id = lookup_file.get("asset_id")
-            lookup_used = lookup_file
+        if trak_asset_id:
+            effective_asset_id = trak_asset_id
+        else:
+            # If that failed, try the first file in the sequence
+            if files:
+                lookup_file = trak_client.tracker_lookup_asset_by_path(files[0])
+                trak_asset_id = lookup_file.get("asset_id")
+                lookup_used = lookup_file
+                if trak_asset_id:
+                    effective_asset_id = trak_asset_id
+
+    # Final fallback: keep existing asset_id if Trak gave us nothing new
+    if not effective_asset_id and existing_asset_id:
+        effective_asset_id = existing_asset_id
 
     # Same result semantics as single files
     result = G_FORCED_RESULT if G_FORCED_RESULT is not None else "pending"
@@ -406,8 +434,11 @@ def process_sequence(
         sig["qc_id"] = existing["qc_id"]
 
     # --- content_state + prev_content_hash for sequences ---
+    is_new_sequence = existing is None
+
     if content_changed:
-        sig["content_state"] = "modified"
+        sig["content_state"] = "new" if is_new_sequence else "modified"
+
         if existing_content_hash is not None:
             sig["prev_content_hash"] = existing_content_hash
     else:
