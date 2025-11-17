@@ -8,7 +8,7 @@ and this project uses **Unreleased** until we tag a real release.
 
 ## **[Unreleased] – 2025-11-14**
 
-### ✨ Added
+### Added
 - **Content state model (`content_state`)**
   Introduced precise content-state tracking for all assets and sequences:
   - `"unchanged"` — content matches previous hash
@@ -21,7 +21,7 @@ and this project uses **Unreleased** until we tag a real release.
   - Operator QC (`--result`) now registers a new explicit QC event.
   - Sidecar records the most recent human QC verdict independently of nightly crawls.
 
-### 🛠️ Changed
+### Changed
 - **Nightly crawl behaviour**
   - Content changes no longer generate new `qc_id`s.
   - Nightly runs now ONLY reset `qc_result` to `"pending"` and update `content_state`.
@@ -30,7 +30,7 @@ and this project uses **Unreleased** until we tag a real release.
   - When sequence frames are unchanged, operator QC reuses the stored `content_hash`.
   - Avoids unnecessary deep hashing on large sequences.
 
-### 🔒 Improved
+### Improved
 - **Atomic writes for sidecars (`*.qc.json`)**
   - Sidecars are now written via `tmp → fsync → os.replace`.
   - Eliminates corruption risk from crashes or partial writes.
@@ -38,7 +38,7 @@ and this project uses **Unreleased** until we tag a real release.
 - **Atomic writes for `.qc.hashcache.json`**
   - Hash cache now uses the same atomic write pattern for consistency and safety.
 
-### 🧹 Maintenance
+### Maintenance
 - Normalised logic between file and sequence QC paths for:
   - Change detection
   - State preservation
@@ -48,13 +48,13 @@ and this project uses **Unreleased** until we tag a real release.
   - `"Marked missing: N"` summary at end of crawl
   - Clearer differentiation between marked vs skipped assets
 
-## **[Unreleased] – 2025-11-14**
+## **[Unreleased] – 2025-11-13**
 
 ## **Major Refactor & Architecture Consolidation**
 
 ### **Migrated project to a modular package structure under `src/qc_asset_crawler/`**
 
-- ✨ Added dedicated modules:
+- Added dedicated modules:
   - `crawler.py` – crawl engine, workers, dispatch
   - `sequences.py` – media walking, grouping, summaries
   - `hashing.py` – cheap_fp, deep hashing, manifest hashing
