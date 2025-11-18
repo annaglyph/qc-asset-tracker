@@ -5,26 +5,26 @@ import sys
 import json
 import os
 import logging
-from typing import Any, Callable, Dict
+from typing import Any, Callable
 
 
 # ---------------- Schema metadata & migrations ---------------- #
+
 SCHEMA_NAME = os.environ.get("QC_SCHEMA_NAME", "qc-asset-crawler.sidecar")
-SCHEMA_VERSION = os.environ.get(
-    "QC_SCHEMA_VERSION", "1"
-)  # current supported sidecar schema version
+SCHEMA_VERSION: int = 2  # current supported sidecar schema version
+
 
 # Migration function: takes a sidecar dict at version N and returns a dict
 # at version N+1.
-MigrationFn = Callable[[dict], dict]
+MigrationFn = Callable[[dict[str, Any]], dict[str, Any]]
 
 # Map: from_version -> migration_fn that upgrades to from_version+1
-MIGRATIONS: Dict[int, MigrationFn] = {}
+MIGRATIONS: dict[int, MigrationFn] = {}
 
 
-def migrate_v1_to_v2(data: Dict[str, Any]) -> Dict[str, Any]:
+def migrate_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
     # Start from a fresh dict so we don't leak old top-level keys
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
 
     # Required schema metadata
     out["schema_name"] = SCHEMA_NAME
@@ -54,7 +54,7 @@ def migrate_v1_to_v2(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     # Content info (hash + state + sequence metrics if present)
-    content: Dict[str, Any] = {
+    content: dict[str, Any] = {
         "hash": data.get("content_hash"),
         "state": data.get("content_state"),
     }
@@ -112,23 +112,12 @@ def get_side_suffix_file() -> str:
 
 
 def get_side_name_sequence() -> str:
-    return os.environ.get("QC_SIDE_NAME_SEQUENCE", "qc.sequence.json")
+    # Default to "sequence.qc.json" to match current sequence sidecar naming
+    return os.environ.get("QC_SIDE_NAME_SEQUENCE", "sequence.qc.json")
 
 
 def get_qc_policy_version() -> str:
     return os.environ.get("QC_POLICY_VERSION", "2025.11.0")
-
-
-'''
-def get_schema_version() -> str:
-    """
-    Return the sidecar schema version.
-
-    This is separate from QC_POLICY_VERSION (which controls re-QC policy).
-    Bump this when you change the JSON shape in a non-trivial way.
-    """
-    return os.environ.get("QC_SCHEMA_VERSION", "1.0.0")
-'''
 
 
 def _coerce_schema_version(value: Any) -> int:
@@ -166,6 +155,9 @@ def get_schema_version() -> int:
     Environment variable QC_SCHEMA_VERSION can override the default to help
     with testing or staged rollouts, but must remain compatible with the
     MIGRATIONS table.
+
+    # NOTE: QC_SCHEMA_VERSION from environment is for development/testing only.
+    # In production, schema version must be controlled by code.
     """
     env = os.environ.get("QC_SCHEMA_VERSION")
     if env:
@@ -173,12 +165,12 @@ def get_schema_version() -> int:
     return SCHEMA_VERSION
 
 
-def _get_payload_schema_version(data: dict) -> int:
+def _get_payload_schema_version(data: dict[str, Any]) -> int:
     """Read the schema_version field from a payload, with sane defaults."""
     return _coerce_schema_version(data.get("schema_version", 1))
 
 
-def ensure_schema_metadata(data: dict) -> dict:
+def ensure_schema_metadata(data: dict[str, Any]) -> dict[str, Any]:
     """
     Ensure schema_name and schema_version fields are present and up to date
     on a sidecar payload. Returns a shallow copy.
@@ -189,7 +181,7 @@ def ensure_schema_metadata(data: dict) -> dict:
     return out
 
 
-def migrate_to_latest(data: dict) -> dict:
+def migrate_to_latest(data: dict[str, Any]) -> dict[str, Any]:
     """
     Upgrade a sidecar payload dict to the current SCHEMA_VERSION.
 
@@ -224,6 +216,8 @@ def migrate_to_latest(data: dict) -> dict:
 
 
 # ----------------- Sidecars -----------------
+
+
 def sidecar_path_for_file(p: Path) -> Path:
     mode = globals().get("G_SIDECAR_MODE", "inline")
     name = f"{p.name}{get_side_suffix_file()}"
@@ -257,25 +251,30 @@ def set_hidden_attribute(path: Path) -> None:
 
             subprocess.run(["chflags", "hidden", str(path)], check=False)
     except Exception:
+        # Best-effort; failure to hide is non-fatal
         pass
 
 
-def read_sidecar(path: Path):
+def read_sidecar(path: Path) -> dict[str, Any] | None:
     """
     Read a sidecar file from disk and return its JSON payload as a dict.
 
-    - Returns None on I/O or JSON errors.
+    - Returns None on I/O or JSON errors (missing file is treated as normal).
     - Applies schema migrations if defined.
     - Ensures schema_name/schema_version fields are present and normalised.
     """
     try:
         raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        # Normal case: no sidecar yet for this asset/sequence
+        return None
     except OSError as e:
+        # Real I/O problem (permissions, network, etc.)
         logging.warning("Failed to read sidecar %s: %s", path, e)
         return None
 
     try:
-        data = json.loads(raw)
+        data: dict[str, Any] = json.loads(raw)
     except ValueError as e:
         logging.warning("Invalid JSON in sidecar %s: %s", path, e)
         return None
@@ -289,7 +288,7 @@ def read_sidecar(path: Path):
     return data
 
 
-def write_sidecar(path: Path, data: dict):
+def write_sidecar(path: Path, data: dict[str, Any]) -> None:
     """
     Write a sidecar JSON file atomically, ensuring schema metadata is present.
     """
@@ -312,7 +311,11 @@ def write_sidecar(path: Path, data: dict):
     set_hidden_attribute(path)
 
 
-def needs_reqc(existing, new_content_hash: str) -> bool:
+def needs_reqc(existing: dict[str, Any] | None, new_content_hash: str) -> bool:
+    """
+    Decide whether an asset needs (re)QC based on existing sidecar data
+    and the new content hash.
+    """
     if not existing:
         return True
     if existing.get("policy_version") != get_qc_policy_version():
