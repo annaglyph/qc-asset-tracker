@@ -30,7 +30,11 @@ dotenv.load_dotenv(find_data_file(".env"))
 # ----------------- CLI -----------------
 def main():
     ap = argparse.ArgumentParser(description="QC marker for media on a SAN.")
-    ap.add_argument("root", help="Root path to crawl")
+    ap.add_argument(
+        "root",
+        nargs="+",
+        help="Root path(s) to crawl. Provide one or more paths.",
+    )
     ap.add_argument(
         "--operator",
         default=os.environ.get("USER") or os.environ.get("USERNAME") or "system",
@@ -53,9 +57,15 @@ def main():
     )
     ap.add_argument(
         "--asset-id",
-        help="Optional Trak asset_id to apply to all sidecars in this run",
+        dest="asset_ids",
+        action="append",
+        help=(
+            "Optional Trak asset_id(s). "
+            "If specified once, it is applied to all roots. "
+            "If specified multiple times, the number of values must match "
+            "the number of roots."
+        ),
     )
-
     ap.add_argument(
         "--sidecar-mode",
         choices=["inline", "dot", "subdir"],
@@ -89,13 +99,20 @@ def main():
     # keep sidecar module in sync so it knows where to write
     sidecar.G_SIDECAR_MODE = args.sidecar_mode
 
-    root = Path(args.root).resolve()
-    return crawler.run(
-        root=root,
+    roots = [Path(r).resolve() for r in args.root]
+    asset_ids = args.asset_ids  # may be None or a list of strings
+
+    # Delegate to the multi-root runner. It gracefully handles:
+    # - single root + no asset_ids
+    # - single root + one asset_id
+    # - multi-root + one asset_id (reused for all roots)
+    # - multi-root + N asset_ids (must match number of roots)
+    return crawler.run_many(
+        roots=roots,
         operator=args.operator,
         workers=args.workers,
         min_seq=args.min_seq,
-        asset_id=args.asset_id,
+        asset_ids=asset_ids,
     )
 
 

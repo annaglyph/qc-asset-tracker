@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Iterable
 
 from qc_asset_crawler.sequences import (
     iter_media,
@@ -554,3 +554,85 @@ def run(
         logging.info("Marked missing: %d", missing)
 
     return 0
+
+
+def run_many(
+    roots: Iterable[Path],
+    operator: str,
+    workers: int,
+    min_seq: int,
+    asset_ids: Optional[Iterable[Optional[str]]] = None,
+) -> int:
+    """
+    Run the crawler over multiple roots in a single invocation.
+
+    Parameters
+    ----------
+    roots:
+        One or more root directories to crawl.
+    operator:
+        Operator name / identifier to embed in sidecars.
+    workers:
+        Max worker threads per root (passed through to `run`).
+    min_seq:
+        Minimum sequence length for grouping frames (passed through to `run`).
+    asset_ids:
+        Optional iterable of asset IDs. Semantics:
+
+        - If None: no explicit asset_id is passed; `run` will use Trak lookup
+          and/or any existing sidecar `asset_id`.
+        - If length == 1: the same asset_id is used for all roots.
+        - If length == len(roots): each root is paired with the corresponding
+          asset_id.
+        - Any other length pairing is treated as a configuration error and the
+          function returns a non-zero exit code.
+
+    Returns
+    -------
+    int
+        0 if all roots completed successfully, otherwise the first non-zero
+        exit code returned by `run`.
+    """
+    roots = [Path(r).resolve() for r in roots]
+    if not roots:
+        logging.warning("No roots provided to run_many; nothing to do.")
+        return 0
+
+    # Normalise asset_ids into a list aligned with roots
+    normalised_asset_ids: List[Optional[str]] = [None] * len(roots)
+    if asset_ids is not None:
+        asset_ids = list(asset_ids)
+        if len(asset_ids) == 1 and len(roots) >= 1:
+            normalised_asset_ids = [asset_ids[0]] * len(roots)
+        elif len(asset_ids) == len(roots):
+            normalised_asset_ids = list(asset_ids)
+        else:
+            logging.error(
+                "asset_ids length (%d) must be 1 or match roots length (%d)",
+                len(asset_ids),
+                len(roots),
+            )
+            return 1
+
+    exit_code = 0
+
+    for idx, (root, asset_id) in enumerate(zip(roots, normalised_asset_ids), start=1):
+        logging.info(
+            "=== CRAWL %d/%d: root=%s asset_id=%s ===",
+            idx,
+            len(roots),
+            root,
+            asset_id or "<auto>",
+        )
+        code = run(
+            root=root,
+            operator=operator,
+            workers=workers,
+            min_seq=min_seq,
+            asset_id=asset_id,
+        )
+        # Preserve the first non-zero exit code, but still process all roots
+        if code != 0 and exit_code == 0:
+            exit_code = code
+
+    return exit_code

@@ -4,6 +4,107 @@ from pathlib import Path
 import sys
 import json
 import os
+import logging
+from typing import Any, Callable, Dict
+
+
+# ---------------- Schema metadata & migrations ---------------- #
+SCHEMA_NAME = os.environ.get("QC_SCHEMA_NAME", "qc-asset-crawler.sidecar")
+SCHEMA_VERSION = os.environ.get(
+    "QC_SCHEMA_VERSION", "1"
+)  # current supported sidecar schema version
+
+# Migration function: takes a sidecar dict at version N and returns a dict
+# at version N+1.
+MigrationFn = Callable[[dict], dict]
+
+# Map: from_version -> migration_fn that upgrades to from_version+1
+MIGRATIONS: Dict[int, MigrationFn] = {}
+
+
+def migrate_v1_to_v2(data: Dict[str, Any]) -> Dict[str, Any]:
+    # Start from a fresh dict so we don't leak old top-level keys
+    out: Dict[str, Any] = {}
+
+    # Required schema metadata
+    out["schema_name"] = SCHEMA_NAME
+    out["schema_version"] = 2
+
+    # Identity / timing
+    out["id"] = data.get("qc_id")
+    out["timestamp"] = data.get("qc_time")
+    out["operator"] = data.get("operator")
+
+    # Tool / policy
+    out["tool"] = {
+        "version": data.get("tool_version"),
+        "policy_version": data.get("policy_version"),
+    }
+
+    # Asset info
+    seq = data.get("sequence")
+    is_sequence = bool(seq)
+
+    out["asset"] = {
+        "id": str(data.get("asset_id")) if data.get("asset_id") is not None else None,
+        "path": data.get("asset_path"),
+        "type": "sequence" if is_sequence else "file",
+        # if you want to keep the raw sequence block as-is:
+        "sequence": seq if is_sequence else None,
+    }
+
+    # Content info (hash + state + sequence metrics if present)
+    content: Dict[str, Any] = {
+        "hash": data.get("content_hash"),
+        "state": data.get("content_state"),
+    }
+
+    if isinstance(seq, dict):
+        content.update(
+            {
+                "base": seq.get("base"),
+                "ext": seq.get("ext"),
+                "pad": seq.get("pad"),
+                "frame_count": seq.get("frame_count"),
+                "frame_min": seq.get("frame_min"),
+                "frame_max": seq.get("frame_max"),
+                "first": seq.get("first"),
+                "last": seq.get("last"),
+                "holes": seq.get("holes"),
+                "range_count": seq.get("range_count"),
+                "cheap_fp": seq.get("cheap_fp"),
+            }
+        )
+
+    out["content"] = content
+
+    # QC info (current + last_valid)
+    out["qc"] = {
+        "status": data.get("qc_result"),
+        "notes": data.get("notes"),
+        "current": {
+            "id": data.get("qc_id"),
+            "time": data.get("qc_time"),
+        },
+        "last_valid": {
+            "id": data.get("last_valid_qc_id"),
+            "time": data.get("last_valid_qc_time"),
+        },
+        "checks": [],
+        "errors": [],
+    }
+
+    return out
+
+
+# -------------------------------------------------------------------
+# ----------- TODO: Future schema upgrades when ratified ------------
+# -------------------------------------------------------------------
+
+# MIGRATIONS = {1: migrate_v1_to_v2}
+
+# -------------------------------------------------------------------
+# -------------------------------------------------------------------
 
 
 def get_side_suffix_file() -> str:
@@ -18,6 +119,7 @@ def get_qc_policy_version() -> str:
     return os.environ.get("QC_POLICY_VERSION", "2025.11.0")
 
 
+'''
 def get_schema_version() -> str:
     """
     Return the sidecar schema version.
@@ -26,6 +128,99 @@ def get_schema_version() -> str:
     Bump this when you change the JSON shape in a non-trivial way.
     """
     return os.environ.get("QC_SCHEMA_VERSION", "1.0.0")
+'''
+
+
+def _coerce_schema_version(value: Any) -> int:
+    """
+    Best-effort conversion of a stored schema_version field to an int.
+
+    Accepts:
+      - int (returned as-is)
+      - "1", "2", "v1", "V2" -> 1, 2
+    Falls back to 1 if it can't be interpreted.
+    """
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        s = value.strip().lstrip("vV")
+        try:
+            return int(s)
+        except ValueError:
+            pass
+    return 1
+
+
+def get_schema_name() -> str:
+    """
+    Name/identifier of the sidecar schema. Environment override is optional
+    but handy if we ever fork the format.
+    """
+    return os.environ.get("QC_SCHEMA_NAME", SCHEMA_NAME)
+
+
+def get_schema_version() -> int:
+    """
+    Return the *target* schema version we want to write sidecars in.
+
+    Environment variable QC_SCHEMA_VERSION can override the default to help
+    with testing or staged rollouts, but must remain compatible with the
+    MIGRATIONS table.
+    """
+    env = os.environ.get("QC_SCHEMA_VERSION")
+    if env:
+        return _coerce_schema_version(env)
+    return SCHEMA_VERSION
+
+
+def _get_payload_schema_version(data: dict) -> int:
+    """Read the schema_version field from a payload, with sane defaults."""
+    return _coerce_schema_version(data.get("schema_version", 1))
+
+
+def ensure_schema_metadata(data: dict) -> dict:
+    """
+    Ensure schema_name and schema_version fields are present and up to date
+    on a sidecar payload. Returns a shallow copy.
+    """
+    out = dict(data)
+    out["schema_name"] = get_schema_name()
+    out["schema_version"] = get_schema_version()
+    return out
+
+
+def migrate_to_latest(data: dict) -> dict:
+    """
+    Upgrade a sidecar payload dict to the current SCHEMA_VERSION.
+
+    Applies MIGRATIONS[v] sequentially: v -> v+1 -> ... until SCHEMA_VERSION
+    or until a gap is found.
+    """
+    current = _get_payload_schema_version(data)
+    target = get_schema_version()
+
+    # Older -> try to migrate forward
+    while current < target:
+        fn = MIGRATIONS.get(current)
+        if fn is None:
+            logging.warning(
+                "No migration path from schema v%s to v%s; leaving sidecar as-is",
+                current,
+                target,
+            )
+            break
+        data = fn(data)
+        current = _get_payload_schema_version(data)
+
+    # Newer -> warn but still return the data
+    if current > target:
+        logging.warning(
+            "Sidecar schema v%s is newer than supported v%s",
+            current,
+            target,
+        )
+
+    return data
 
 
 # ----------------- Sidecars -----------------
@@ -66,35 +261,49 @@ def set_hidden_attribute(path: Path) -> None:
 
 
 def read_sidecar(path: Path):
+    """
+    Read a sidecar file from disk and return its JSON payload as a dict.
+
+    - Returns None on I/O or JSON errors.
+    - Applies schema migrations if defined.
+    - Ensures schema_name/schema_version fields are present and normalised.
+    """
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as e:
+        logging.warning("Failed to read sidecar %s: %s", path, e)
         return None
+
+    try:
+        data = json.loads(raw)
+    except ValueError as e:
+        logging.warning("Invalid JSON in sidecar %s: %s", path, e)
+        return None
+
+    # Upgrade older payloads if we know how
+    data = migrate_to_latest(data)
+
+    # Ensure schema metadata is present/updated
+    data = ensure_schema_metadata(data)
+
+    return data
 
 
 def write_sidecar(path: Path, data: dict):
     """
-    Atomically write a sidecar JSON file.
-
-    We write to a temporary file, fsync it, then os.replace() it over the
-    destination. This prevents corrupted JSON on crash/network drop.
-
-    We then reapply hidden attributes (Windows) to the final file.
+    Write a sidecar JSON file atomically, ensuring schema metadata is present.
     """
-    path = Path(path)
+    # Attach/update schema_name + schema_version
+    payload = ensure_schema_metadata(data)
+
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Write to a temporary file first for atomic replace
     tmp = path.with_suffix(path.suffix + ".tmp")
-
-    # Write atomic temp file
-    with tmp.open("w", encoding="utf-8", newline="\n") as f:
-        json.dump(data, f, indent=2, sort_keys=True)
-        f.flush()
-        try:
-            os.fsync(f.fileno())
-        except OSError:
-            # Network FS: fsync may not be supported
-            pass
+    tmp.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
     # Atomic replace
     os.replace(tmp, path)

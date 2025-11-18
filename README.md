@@ -142,7 +142,8 @@ All sidecars follow a unified schema containing:
   "qc_result": "pending",                           /* pending | pass | fail */
   "qc_time": "2025-11-17T14:11:48.955360+00:00",
 
-  "schema_version": "1.0.0",
+  "schema_name": "qc-asset-crawler.sidecar",
+  "schema_version": 1,
 
   "sequence": {
     "base": "running-man_r2_german",
@@ -196,7 +197,8 @@ All sidecars follow a unified schema containing:
   "qc_result": "pending",                           /* pending | pass | fail */
   "qc_time": "2025-11-17T14:11:48.955360+00:00",
 
-  "schema_version": "1.0.0",
+  "schema_name": "qc-asset-crawler.sidecar",
+  "schema_version": 1,
 
   "sequence": null,
 

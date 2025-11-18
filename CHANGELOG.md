@@ -6,6 +6,44 @@ and this project uses **Unreleased** until we tag a real release.
 
 ---------------------------------
 
+## **[Unreleased] – 2025-11-18**
+
+### Added
+- **Implemented multi-root / multi-asset crawling via new `run_many()` API.**
+  - CLI updated to accept one or more root paths.
+  - Multiple `--asset-id` values supported, with positional pairing to roots.
+  - Backwards-compatible with existing single-root usage.
+- **Introduced full schema versioning system for QC sidecars:**
+  - New schema fields: `schema_name` + `schema_version`.
+  - Environment-variable overrides (`QC_SCHEMA_NAME`, `QC_SCHEMA_VERSION`) added.
+  - Robust version coercion and schema metadata normalisation.
+  - Fully implemented migration framework (`MIGRATIONS`, `migrate_to_latest`).
+  - Added example `migrate_v1_to_v2` mapping function (kept dormant for now).
+  - Updated `read_sidecar()` and `write_sidecar()` to guarantee schema metadata and future migration support.
+- **Added AE “Check QC” script proof-of-concept:**
+  - Reads sidecars for selected or all Project items.
+  - Inserts structured QC tags like `[[QC: PASS]]` into Comments.
+  - Replaces tags only when QC state changes.
+  - Adds new `[[QC: MISSING]]` or `[[QC: UNAVAILABLE]]` states for missing/unreadable sidecars.
+  - Applies AE label colours for visual indication.
+  - Artists now have an in-application QC view directly inside After Effects.
+
+### Changed
+- Normalised CLI documentation and argparse logic to handle multi-root inputs cleanly.
+- Ensured sidecar reads always return a migrated, normalised dict.
+- Ensured sidecar writes always attach correct schema metadata.
+
+### Improved
+- Internal consistency and forward-compatibility of QC sidecar structure.
+- Code organisation inside `sidecar.py` for easier long-term schema evolution.
+- Foundation laid for future schema v2 and plugin-based QC policy system.
+
+### Notes
+- For now, the crawler still writes v1-shaped payloads, but tagged with schema information.
+- Full v2 emission will come later, once the new structure is finalised and downstream tools are ready to consume it.
+
+---------------------------------
+
 ## **[Unreleased] – 2025-11-17**
 
 ### Added
