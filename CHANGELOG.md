@@ -6,6 +6,37 @@ and this project uses **Unreleased** until we tag a real release.
 
 ---------------------------------
 
+## **[Unreleased] – 2025-11-19**
+
+### Added
+- Full CLI logging overhaul including:
+  - `--quiet` mode for reduced output
+  - `--json-logs` mode for machine-readable structured logs
+  - Colourised console logs with cross-platform ANSI handling
+  - Empty-message filtering to suppress noisy debug output
+- New test suites:
+  - Sidecar read/write round-trip coverage
+  - Legacy sidecar auto-upgrade behaviour
+  - Logging configuration, formatters, and filters
+- New test files:
+  - `tests/test_qc_crawl_logging.py`
+  - `tests/test_sidecar_schema.py`
+
+### Changed
+- Migrated CLI logging from `logging.basicConfig` to robust handler-based configuration.
+- Crawler now logs a structured end-of-run QC summary (sequences, singles, marked, skipped, missing, worker errors).
+- Updated sidecar schema handling to consistently apply metadata during read/write.
+- Updated schema tests to reflect version clamping (`QC_SCHEMA_VERSION` cannot exceed supported version).
+
+### Improved
+- More reliable local workflow using a clear pre-commit → stage → commit process.
+- Removed duplicate test definitions triggering `flake8 F811` errors.
+- GitLab CI now uses a valid Python base image (`python:3.12-slim`) ensuring pipelines run consistently.
+- Future schema migration scaffolding strengthened without affecting current v1 sidecar behaviour.
+
+
+---------------------------------
+
 ## **[Unreleased] – 2025-11-18**
 
 ### Added
