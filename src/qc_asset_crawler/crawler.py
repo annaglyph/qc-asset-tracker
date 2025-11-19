@@ -509,11 +509,20 @@ def run(
     min_seq: int,
     asset_id: Optional[str] = None,
 ) -> int:
+    """Run the crawler for a single root and log a concise summary."""
     files = list(iter_media(root))
     sequences_map, singles = group_sequences(files, min_seq=min_seq)
-    logging.info("Found %d sequences and %d singles", len(sequences_map), len(singles))
 
-    results = []
+    logging.info(
+        "QC crawl starting for %s: %d media files (%d sequences, %d singles)",
+        root,
+        len(files),
+        len(sequences_map),
+        len(singles),
+    )
+
+    results: list[Tuple[str, Path]] = []
+    worker_errors = 0
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
         futs = [
@@ -541,17 +550,35 @@ def run(
         for f in concurrent.futures.as_completed(futs):
             try:
                 results.append(f.result())
-            except Exception as e:
-                logging.error("Worker error: %s", e)
+            except Exception as e:  # pragma: no cover - defensive logging
+                worker_errors += 1
+                logging.error("Worker error: %s", e, exc_info=True)
 
     marked = [p for (s, p) in results if s == "marked"]
     skipped = [p for (s, p) in results if s == "skip"]
-    logging.info("Marked: %d, Skipped: %d", len(marked), len(skipped))
+
+    marked_count = len(marked)
+    skipped_count = len(skipped)
+
+    logging.info("Marked: %d, Skipped: %d", marked_count, skipped_count)
 
     # Second pass: mark sidecars whose media has gone missing
     missing = mark_missing_content(root)
     if missing:
         logging.info("Marked missing: %d", missing)
+
+    # Final summary line for this root
+    logging.info(
+        "QC crawl summary for %s: sequences=%d, singles=%d, "
+        "marked=%d, skipped=%d, missing_marked=%d, worker_errors=%d",
+        root,
+        len(sequences_map),
+        len(singles),
+        marked_count,
+        skipped_count,
+        missing,
+        worker_errors,
+    )
 
     return 0
 

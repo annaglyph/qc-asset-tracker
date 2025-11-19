@@ -11,7 +11,18 @@ from typing import Any, Callable
 # ---------------- Schema metadata & migrations ---------------- #
 
 SCHEMA_NAME = os.environ.get("QC_SCHEMA_NAME", "qc-asset-crawler.sidecar")
-SCHEMA_VERSION: int = 2  # current supported sidecar schema version
+
+# IMPORTANT: default is still v1 until v2 is agreed.
+SCHEMA_VERSION = os.environ.get(
+    "QC_SCHEMA_VERSION", "1"
+)  # current supported sidecar schema version
+
+# Define the known schema versions as integers for easy comparison
+CURRENT_SCHEMA_VERSION = int(SCHEMA_VERSION)
+
+# Keep this central for future schema handling
+MIN_SUPPORTED_SCHEMA_VERSION = 1
+MAX_SUPPORTED_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
 # Migration function: takes a sidecar dict at version N and returns a dict
@@ -22,89 +33,108 @@ MigrationFn = Callable[[dict[str, Any]], dict[str, Any]]
 MIGRATIONS: dict[int, MigrationFn] = {}
 
 
-def migrate_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
-    # Start from a fresh dict so we don't leak old top-level keys
-    out: dict[str, Any] = {}
+V1_REQUIRED_FIELDS = {
+    "schema_name",
+    "schema_version",
+    "asset_path",
+    "asset_hash",
+}
 
-    # Required schema metadata
-    out["schema_name"] = SCHEMA_NAME
-    out["schema_version"] = 2
+V1_OPTIONAL_FIELDS = {
+    "asset_id",
+    "last_seen",
+    "policy_version",
+    "notes",
+    # add or remove as appropriate
+}
 
-    # Identity / timing
-    out["id"] = data.get("qc_id")
-    out["timestamp"] = data.get("qc_time")
-    out["operator"] = data.get("operator")
 
-    # Tool / policy
-    out["tool"] = {
-        "version": data.get("tool_version"),
-        "policy_version": data.get("policy_version"),
-    }
+def validate_v1_sidecar(data: dict[str, Any], *, strict: bool = False) -> None:
+    """
+    Validate a v1 sidecar structure.
 
-    # Asset info
-    seq = data.get("sequence")
-    is_sequence = bool(seq)
+    Raises ValueError if required fields are missing or types look wrong.
+    """
+    missing = [field for field in V1_REQUIRED_FIELDS if field not in data]
+    if missing:
+        raise ValueError(f"v1 sidecar missing required fields: {', '.join(missing)}")
 
-    out["asset"] = {
-        "id": str(data.get("asset_id")) if data.get("asset_id") is not None else None,
-        "path": data.get("asset_path"),
-        "type": "sequence" if is_sequence else "file",
-        # if you want to keep the raw sequence block as-is:
-        "sequence": seq if is_sequence else None,
-    }
-
-    # Content info (hash + state + sequence metrics if present)
-    content: dict[str, Any] = {
-        "hash": data.get("content_hash"),
-        "state": data.get("content_state"),
-    }
-
-    if isinstance(seq, dict):
-        content.update(
-            {
-                "base": seq.get("base"),
-                "ext": seq.get("ext"),
-                "pad": seq.get("pad"),
-                "frame_count": seq.get("frame_count"),
-                "frame_min": seq.get("frame_min"),
-                "frame_max": seq.get("frame_max"),
-                "first": seq.get("first"),
-                "last": seq.get("last"),
-                "holes": seq.get("holes"),
-                "range_count": seq.get("range_count"),
-                "cheap_fp": seq.get("cheap_fp"),
-            }
+    if data.get("schema_name") != SCHEMA_NAME:
+        logging.warning(
+            "Sidecar schema_name '%s' does not match expected '%s'",
+            data.get("schema_name"),
+            SCHEMA_NAME,
         )
 
-    out["content"] = content
+    # Basic type checks (tune these based on real schema)
+    if not isinstance(data.get("asset_path"), str):
+        raise ValueError("v1 sidecar 'asset_path' must be a string")
 
-    # QC info (current + last_valid)
-    out["qc"] = {
-        "status": data.get("qc_result"),
-        "notes": data.get("notes"),
-        "current": {
-            "id": data.get("qc_id"),
-            "time": data.get("qc_time"),
-        },
-        "last_valid": {
-            "id": data.get("last_valid_qc_id"),
-            "time": data.get("last_valid_qc_time"),
-        },
-        "checks": [],
-        "errors": [],
-    }
+    if not isinstance(data.get("asset_hash"), str):
+        raise ValueError("v1 sidecar 'asset_hash' must be a string")
 
-    return out
+    if (
+        "asset_id" in data
+        and data["asset_id"] is not None
+        and not isinstance(data["asset_id"], (str, int))
+    ):
+        raise ValueError("v1 sidecar 'asset_id' must be string, int or null")
+
+    if strict:
+        allowed_fields = V1_REQUIRED_FIELDS | V1_OPTIONAL_FIELDS
+        extra = [field for field in data.keys() if field not in allowed_fields]
+        if extra:
+            logging.warning(
+                "v1 sidecar has unexpected extra fields: %s", ", ".join(extra)
+            )
 
 
-# -------------------------------------------------------------------
-# ----------- TODO: Future schema upgrades when ratified ------------
-# -------------------------------------------------------------------
+def migrate_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    Placeholder for future v1 -> v2 migration.
 
-# MIGRATIONS = {1: migrate_v1_to_v2}
+    Currently not implemented because v2 has not been agreed with the
+    wider teams. When v2 is defined, implement the field transformations here.
 
-# -------------------------------------------------------------------
-# -------------------------------------------------------------------
+    NOTE: this function is *not* wired into MIGRATIONS yet. Once the v2 schema
+    is signed off, add an entry to MIGRATIONS, for example:
+
+        MIGRATIONS[1] = migrate_v1_to_v2
+    """
+    raise NotImplementedError(
+        "v2 schema is not yet defined. "
+        "Do not set QC_SCHEMA_VERSION=2 until migration is implemented."
+    )
+
+
+def _coerce_schema_version(value: Any) -> int:
+    """
+    Best-effort conversion of a stored schema_version field to an int.
+
+    Accepts:
+      - int (returned as-is)
+      - "1", "2", "v1", "V2" -> 1, 2
+
+    Falls back to 1 if it can't be interpreted, defaulting to 1.
+    """
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        s = value.strip().lstrip("vV")
+        try:
+            return int(s)
+        except ValueError:
+            logging.warning(
+                "Unable to parse schema_version value %r; defaulting to 1",
+                value,
+            )
+            return 1
+
+    logging.warning(
+        "Unexpected type for schema_version (%s); defaulting to 1",
+        type(value).__name__,
+    )
+    return 1
 
 
 def get_side_suffix_file() -> str:
@@ -120,30 +150,11 @@ def get_qc_policy_version() -> str:
     return os.environ.get("QC_POLICY_VERSION", "2025.11.0")
 
 
-def _coerce_schema_version(value: Any) -> int:
-    """
-    Best-effort conversion of a stored schema_version field to an int.
-
-    Accepts:
-      - int (returned as-is)
-      - "1", "2", "v1", "V2" -> 1, 2
-    Falls back to 1 if it can't be interpreted.
-    """
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        s = value.strip().lstrip("vV")
-        try:
-            return int(s)
-        except ValueError:
-            pass
-    return 1
-
-
 def get_schema_name() -> str:
     """
-    Name/identifier of the sidecar schema. Environment override is optional
-    but handy if we ever fork the format.
+    Return the canonical schema_name that should be written into sidecars.
+
+    Environment variable QC_SCHEMA_NAME can override the built-in default.
     """
     return os.environ.get("QC_SCHEMA_NAME", SCHEMA_NAME)
 
@@ -156,13 +167,35 @@ def get_schema_version() -> int:
     with testing or staged rollouts, but must remain compatible with the
     MIGRATIONS table.
 
-    # NOTE: QC_SCHEMA_VERSION from environment is for development/testing only.
-    # In production, schema version must be controlled by code.
+    NOTE: in production we expect schema bumps to be done via code changes,
+    not via environment tweaks.
     """
     env = os.environ.get("QC_SCHEMA_VERSION")
-    if env:
-        return _coerce_schema_version(env)
-    return SCHEMA_VERSION
+    if env is not None:
+        version = _coerce_schema_version(env)
+    else:
+        version = _coerce_schema_version(SCHEMA_VERSION)
+
+    # Clamp to the supported range so we never "target" an unsupported version.
+    if version < MIN_SUPPORTED_SCHEMA_VERSION:
+        logging.warning(
+            "Configured target schema_version %s is below minimum supported %s; "
+            "using minimum.",
+            version,
+            MIN_SUPPORTED_SCHEMA_VERSION,
+        )
+        return MIN_SUPPORTED_SCHEMA_VERSION
+
+    if version > MAX_SUPPORTED_SCHEMA_VERSION:
+        logging.warning(
+            "Configured target schema_version %s is above maximum supported %s; "
+            "using maximum.",
+            version,
+            MAX_SUPPORTED_SCHEMA_VERSION,
+        )
+        return MAX_SUPPORTED_SCHEMA_VERSION
+
+    return version
 
 
 def _get_payload_schema_version(data: dict[str, Any]) -> int:
@@ -173,7 +206,7 @@ def _get_payload_schema_version(data: dict[str, Any]) -> int:
 def ensure_schema_metadata(data: dict[str, Any]) -> dict[str, Any]:
     """
     Ensure schema_name and schema_version fields are present and up to date
-    on a sidecar payload. Returns a shallow copy.
+    on a sidecar payload. Returns a shallow copy of the input dict.
     """
     out = dict(data)
     out["schema_name"] = get_schema_name()
@@ -181,37 +214,56 @@ def ensure_schema_metadata(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def migrate_sidecar_if_needed(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    Backwards-compatible helper to migrate a sidecar payload to the latest
+    supported schema version, using the MIGRATIONS table.
+
+    At the moment we only have v1, so this function is effectively a no-op,
+    but the structure is in place for future v2+ upgrades.
+    """
+    return migrate_to_latest(data)
+
+
 def migrate_to_latest(data: dict[str, Any]) -> dict[str, Any]:
     """
-    Upgrade a sidecar payload dict to the current SCHEMA_VERSION.
+    Upgrade a sidecar payload dict to the current schema version.
 
-    Applies MIGRATIONS[v] sequentially: v -> v+1 -> ... until SCHEMA_VERSION
+    Applies MIGRATIONS[v] sequentially: v -> v+1 -> ... until get_schema_version()
     or until a gap is found.
+
+    If the payload version is newer than we support, the payload is returned
+    unchanged but a warning is logged.
     """
     current = _get_payload_schema_version(data)
     target = get_schema_version()
 
+    if current == target:
+        return data
+
     # Older -> try to migrate forward
-    while current < target:
-        fn = MIGRATIONS.get(current)
-        if fn is None:
-            logging.warning(
-                "No migration path from schema v%s to v%s; leaving sidecar as-is",
-                current,
-                target,
-            )
-            break
-        data = fn(data)
-        current = _get_payload_schema_version(data)
+    if current < target:
+        while current < target:
+            fn = MIGRATIONS.get(current)
+            if fn is None:
+                logging.warning(
+                    "No migration path from schema v%s to v%s; leaving sidecar as-is",
+                    current,
+                    target,
+                )
+                break
 
-    # Newer -> warn but still return the data
-    if current > target:
-        logging.warning(
-            "Sidecar schema v%s is newer than supported v%s",
-            current,
-            target,
-        )
+            data = fn(data)
+            current = _get_payload_schema_version(data)
 
+        return data
+
+    # Newer -> warn but still return the data unchanged
+    logging.warning(
+        "Sidecar schema v%s is newer than supported v%s",
+        current,
+        target,
+    )
     return data
 
 
@@ -251,8 +303,8 @@ def set_hidden_attribute(path: Path) -> None:
 
             subprocess.run(["chflags", "hidden", str(path)], check=False)
     except Exception:
-        # Best-effort; failure to hide is non-fatal
-        pass
+        # Best-effort; failure to hide the file is not fatal
+        logging.debug("Failed to set hidden attribute for %s", path)
 
 
 def read_sidecar(path: Path) -> dict[str, Any] | None:

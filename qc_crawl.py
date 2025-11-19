@@ -7,16 +7,28 @@ qc-asset-crawler
 - Small qc.sidecars with manifest hash (no giant manifests)
 - Consistent JSON schema + validation
 """
+
 import argparse
+import json
 import logging
 import os
 import sys
+from datetime import datetime, timezone
+
 import dotenv
 from pathlib import Path
 from qc_asset_crawler import crawler, sidecar
 
+try:
+    # Optional: nicer colours on Windows
+    import colorama
 
-def find_data_file(filename):
+    colorama.init()
+except Exception:
+    colorama = None
+
+
+def find_data_file(filename: str) -> str:
     if getattr(sys, "frozen", False):
         datadir = os.path.dirname(sys.executable)
     else:
@@ -27,8 +39,120 @@ def find_data_file(filename):
 dotenv.load_dotenv(find_data_file(".env"))
 
 
+# ----------------- Logging helpers -----------------
+
+
+class IgnoreEmptyMessageFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return bool(record.getMessage().strip())
+
+
+class ColourFormatter(logging.Formatter):
+    """
+    Simple ANSI colour formatter for console logs.
+
+    Colours:
+      DEBUG   -> cyan
+      INFO    -> green
+      WARNING -> yellow
+      ERROR   -> red
+      CRITICAL-> red background
+    """
+
+    COLOURS = {
+        logging.DEBUG: "\033[96m",  # bright cyan
+        logging.INFO: "\033[92m",  # bright green
+        logging.WARNING: "\033[93m",  # bright yellow
+        logging.ERROR: "\033[91m",  # bright red
+        logging.CRITICAL: "\033[41m",  # red background
+    }
+
+    RESET = "\033[0m"
+
+    def format(self, record: logging.LogRecord) -> str:
+        base = super().format(record)
+        colour = self.COLOURS.get(record.levelno)
+        if not colour:
+            return base
+        return f"{colour}{base}{self.RESET}"
+
+
+class JsonFormatter(logging.Formatter):
+    """
+    Emit one JSON object per log line, suitable for ingestion by log tools.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": datetime.fromtimestamp(
+                record.created, tz=timezone.utc
+            ).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def configure_logging(
+    level_name: str,
+    *,
+    quiet: bool = False,
+    json_logs: bool = False,
+) -> None:
+    """
+    Configure global logging.
+
+    Args
+    ----
+    level_name:
+        Base log level name from CLI (--log), e.g. "INFO", "DEBUG".
+    quiet:
+        If True, bump the level to WARNING for console output.
+    json_logs:
+        If True, emit machine-readable JSON log lines instead of coloured text.
+    """
+    # Clear any existing handlers (important if main() is called more than once)
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        root.removeHandler(h)
+
+    level = getattr(logging, level_name.upper(), logging.INFO)
+    if quiet and level < logging.WARNING:
+        level = logging.WARNING
+
+    root.setLevel(level)
+
+    handler = logging.StreamHandler(sys.stdout)
+
+    if json_logs:
+        fmt: logging.Formatter = JsonFormatter()
+    else:
+        # Use ANSI colours for human-readable console logs
+        fmt = ColourFormatter(
+            fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
+        fmt.datefmt = "%Y-%m-%d %H:%M:%S"
+
+    handler.addFilter(IgnoreEmptyMessageFilter())
+
+    handler.setFormatter(fmt)
+    root.addHandler(handler)
+
+    # Reduce noise from common libraries
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+
+
 # ----------------- CLI -----------------
-def main():
+
+
+def main() -> int:
     ap = argparse.ArgumentParser(description="QC marker for media on a SAN.")
     ap.add_argument(
         "root",
@@ -47,7 +171,17 @@ def main():
     ap.add_argument(
         "--log",
         default="INFO",
-        help="Logging level (DEBUG, INFO, WARNING, ERROR)",
+        help="Logging level (DEBUG, INFO, WARNING, ERROR).",
+    )
+    ap.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Reduce log output (at least WARNING, regardless of --log).",
+    )
+    ap.add_argument(
+        "--json-logs",
+        action="store_true",
+        help="Emit machine-readable JSON log lines instead of human-readable text.",
     )
     ap.add_argument(
         "--min-seq",
@@ -84,11 +218,14 @@ def main():
         "--note",
         help="Optional operator note to store in the sidecar",
     )
+
     args = ap.parse_args()
 
-    logging.basicConfig(
-        level=getattr(logging, args.log.upper(), logging.DEBUG),
-        format="%(levelname)s %(message)s",
+    # Initialise logging using module-level configure_logging (no nested def!)
+    configure_logging(
+        level_name=args.log,
+        quiet=args.quiet,
+        json_logs=args.json_logs,
     )
 
     # Set the globals in the crawler module
