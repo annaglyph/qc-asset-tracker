@@ -5,6 +5,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased] — Mutation Detection Integration
+
+### Added
+- Optional sequence-level partial-frame mutation detection:
+  - `--enable-mutation-detection` to activate the feature.
+  - `--mutation-threshold-frames`, `--mutation-threshold-percent`, and
+    `--mutation-count-removed` for configurable detection rules.
+  - `--show-diff` to print changed/added/removed frame ranges.
+- Added per-sequence `fingerprint` field (v1-safe) for future schema v2 enhancements.
+- Improved crawler logging and CLI wiring around mutation detection controls.
+
+### Changed
+- Removed over-aggressive `cheap_fp` skip logic that prevented detection of modified
+  frames when filenames were unchanged.
+- `qc_crawl.py` now correctly wires mutation configuration into the crawler globals.
+- First-run diff output is now suppressed to avoid flooding logs with full frame lists.
+
+### Fixed
+- Hashcache lookup normalised to `p.name` to correctly match stored entries.
+- Resolved mismatch between staged files and working tree that caused CLI flags to
+  be ignored during execution.
+
+---
+
 ## [Unreleased] – 2025-11-19
 
 ### Added
