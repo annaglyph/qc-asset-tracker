@@ -1,12 +1,11 @@
 # CHANGELOG
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project uses **Unreleased** until we tag a real release.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
----------------------------------
+---
 
-## **[Unreleased] – 2025-11-19**
+## [Unreleased] – 2025-11-19
 
 ### Added
 - Full CLI logging overhaul including:
@@ -34,10 +33,9 @@ and this project uses **Unreleased** until we tag a real release.
 - GitLab CI now uses a valid Python base image (`python:3.12-slim`) ensuring pipelines run consistently.
 - Future schema migration scaffolding strengthened without affecting current v1 sidecar behaviour.
 
+---
 
----------------------------------
-
-## **[Unreleased] – 2025-11-18**
+## [2025-11-18]
 
 ### Added
 - **Implemented multi-root / multi-asset crawling via new `run_many()` API.**
@@ -73,9 +71,9 @@ and this project uses **Unreleased** until we tag a real release.
 - For now, the crawler still writes v1-shaped payloads, but tagged with schema information.
 - Full v2 emission will come later, once the new structure is finalised and downstream tools are ready to consume it.
 
----------------------------------
+---
 
-## **[Unreleased] – 2025-11-17**
+## [2025-11-17]
 
 ### Added
 - **Full integration test for `crawler.run()`**, covering:
@@ -118,13 +116,12 @@ and this project uses **Unreleased** until we tag a real release.
   - Integration of the entire crawler pipeline
 
 ### Notes
-
 - README update pending to reflect new `content_state` semantics and sticky `asset_id` behaviour.
 - Trak integration tests deferred until new API endpoints (POST sidecar & path search) are available.
 
----------------------------------
+---
 
-## **[Unreleased] – 2025-11-14**
+## [2025-11-14]
 
 ### Added
 - **Content state model (`content_state`)**
@@ -166,13 +163,16 @@ and this project uses **Unreleased** until we tag a real release.
   - `"Marked missing: N"` summary at end of crawl
   - Clearer differentiation between marked vs skipped assets
 
----------------------------------
+### Behavioural Stability
+- All refactors were behaviour-preserving.
+- All sidecar generation, hashing, and sequence grouping retain original semantics.
+- All improvements are additive and forward-compatible.
 
-## **[Unreleased] – 2025-11-13**
+---
 
-## **Major Refactor & Architecture Consolidation**
+## [2025-11-13] – Major Refactor & Architecture Consolidation
 
-### **Migrated project to a modular package structure under `src/qc_asset_crawler/`**
+### Migrated project to a modular package structure under `src/qc_asset_crawler/`
 
 - Added dedicated modules:
   - `crawler.py` – crawl engine, workers, dispatch
@@ -188,7 +188,7 @@ and this project uses **Unreleased** until we tag a real release.
 - Extracted all functionality from monolithic script into cohesive, testable modules
 - Introduced a clear separation of responsibilities across modules
 
-## **Sidecar Schema Enhancements**
+### Sidecar Schema Enhancements
 - Added `schema_version` field (`1.0.0`) to all sidecars
 - Ensured `sequence` is always present (`null` for single-file assets)
 - Added environment-variable-driven overrides for:
@@ -197,11 +197,11 @@ and this project uses **Unreleased** until we tag a real release.
   - `QC_SIDE_NAME_SEQUENCE`
   - `QC_POLICY_VERSION`
 
-## **Improved Sidecar & Hashcache Handling**
+### Improved Sidecar & Hashcache Handling
 - Unified naming conventions through helpers in `sidecar.py` & `hashcache.py`
 - Sidecar location modes fully supported:
-  - `inline
-  - `dot
+  - `inline`
+  - `dot`
   - `subdir` (`.qc/`)
 - Updated `qc_cleanup.py` to:
   - Use naming from `sidecar` and `hashcache`
@@ -209,7 +209,7 @@ and this project uses **Unreleased** until we tag a real release.
   - Remove `.qc/` in subdir mode
   - Support dry-run and reflect new schema
 
-## **CLI Enhancements**
+### CLI Enhancements
 
 - Added `--asset-id` option to explicitly assign Trak asset IDs per run
   - Skips Trak lookup if provided
@@ -218,7 +218,7 @@ and this project uses **Unreleased** until we tag a real release.
 - Normalised all CLI flags across entrypoints
 - Updated help text, README, and examples
 
-## **Documentation Overhaul**
+### Documentation Overhaul
 - Fully rewritten README.md, including:
   - Modernised project overview
   - Accurate module layout
@@ -233,14 +233,14 @@ and this project uses **Unreleased** until we tag a real release.
   - Testing strategy
 - Cleaned `.gitignore`, removed egg-info, ensured `.env` is excluded
 
-## **Testing & Tooling Improvements**
+### Testing & Tooling Improvements
 - Ensured project is stable under:
   - `pytest`
   - `pre-commit` (Black, flake8, whitespace cleanup)
 - Added test scaffolding for future expansion
 - Ensured consistent version management via `__init__.py`
 
-## **Behavioural Stability**
-- All refactors were behaviour-preserving
-- All sidecar generation, hashing, and sequence grouping retain original semantics
-- All improvements are additive and forward-compatible
+### Behavioural Stability
+- All refactors were behaviour-preserving.
+- All sidecar generation, hashing, and sequence grouping retain original semantics.
+- All improvements are additive and forward-compatible.
