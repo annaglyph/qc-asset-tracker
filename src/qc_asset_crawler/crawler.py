@@ -13,14 +13,38 @@ from qc_asset_crawler.sequences import (
     summarize_frames,
 )
 from qc_asset_crawler import hashing, trak_client, sidecar, hashcache, qcstate, config
+from qc_asset_crawler.mutation import (
+    SequenceMutationConfig,
+    detect_sequence_mutation,
+    summarize_frame_spans,
+)
+
 
 # Globals set from CLI
 G_SIDECAR_MODE: str = "subdir"
 G_FORCED_RESULT: str | None = None
 G_NOTE: str | None = None
+G_MUTATION_CONFIG: SequenceMutationConfig | None = None
+G_SHOW_MUTATION_DIFF: bool = False
 
 
 # ----------------- Helpers -----------------
+
+
+def build_mutation_config(args) -> SequenceMutationConfig | None:
+    """
+    Build mutation config from CLI args.
+    Returns None if mutation detection is disabled.
+    """
+    if not getattr(args, "enable_mutation_detection", False):
+        return None
+
+    return SequenceMutationConfig(
+        threshold_frames=args.mutation_threshold_frames or 1,
+        threshold_percent=args.mutation_threshold_percent,
+        count_removed_frames=args.mutation_count_removed,
+        treat_added_frames_as_mutation=True,
+    )
 
 
 def normalize_base_ext(base: str, ext: str) -> tuple[str, str]:
@@ -323,27 +347,41 @@ def process_sequence(
     - Operator runs (G_FORCED_RESULT set):
         * Always rewrite the sidecar so qc_result/notes can change, even if bytes unchanged.
         * Reuse existing content_hash when cheap_fp+policy match to avoid rehashing.
+
+    With mutation detection enabled (G_MUTATION_CONFIG not None):
+    - For automated runs, we treat a sequence as "changed enough to require QC"
+      based on the configured thresholds and hashcache-derived per-frame hashes,
+      rather than simply any change in the manifest content_hash.
     """
     sc = sidecar.sequence_sidecar_path(dir_path)
 
     cache = hashcache.load_hashcache(dir_path)
+
+    # Snapshot previous per-file hashes for mutation detection, if enabled.
+    # We use file names as identifiers within the sequence directory.
+    previous_hashes: dict[str, str] = {}
+    if G_MUTATION_CONFIG is not None:
+        for p in files:
+            entry = cache.get(p.name)
+            if isinstance(entry, dict) and "hash" in entry:
+                previous_hashes[p.name] = entry["hash"]
+
     cheap_fp = hashing.cheap_fingerprint(files)
     existing = sidecar.read_sidecar(sc)
 
     existing_content_hash = existing.get("content_hash") if existing else None
-
     operator_forced = G_FORCED_RESULT is not None
 
     # ---------- Fast-path skip for automated runs ----------
     # If cheap fingerprint hasn't changed and policy unchanged, we can skip deep hashing & QC
-    if (
-        not operator_forced
-        and existing
-        and existing.get("policy_version") == sidecar.get_qc_policy_version()
-    ):
-        seq = existing.get("sequence", {}) or {}
-        if seq.get("cheap_fp") == cheap_fp:
-            return ("skip", dir_path / f"{base}*.{ext}")
+    # if (
+    #    not operator_forced
+    #    and existing
+    #    and existing.get("policy_version") == sidecar.get_qc_policy_version()
+    # ):
+    #    seq = existing.get("sequence", {}) or {}
+    #    if seq.get("cheap_fp") == cheap_fp:
+    #        return ("skip", dir_path / f"{base}*.{ext}")
 
     # ---------- Deep hashing / manifest hash ----------
     # For automated runs, we want full content-hash based re-QC decisions.
@@ -366,15 +404,72 @@ def process_sequence(
     # Determine if the content has actually changed vs what was stored
     content_changed = existing_content_hash is None or existing_content_hash != seq_hash
 
-    # For automated runs (no forced result), we can still early-out if content & policy
-    # are unchanged (needs_reqc returns False). We may still update cheap_fp if missing.
-    if not operator_forced and existing and not sidecar.needs_reqc(existing, seq_hash):
-        # But update cheap_fp if missing or changed
-        existing_seq = existing.setdefault("sequence", {}) or {}
-        if existing_seq.get("cheap_fp") != cheap_fp:
-            existing_seq["cheap_fp"] = cheap_fp
-            sidecar.write_sidecar(sc, existing)
-        return ("skip", dir_path / f"{base}*.{ext}")
+    # ---------- Optional sequence-level mutation detection ----------
+    mutation_result = None
+    if G_MUTATION_CONFIG is not None:
+        # Build current per-file hashes from the (now updated) cache.
+        current_hashes: dict[str, str] = {}
+        for p in files:
+            entry = cache.get(p.name)
+            if isinstance(entry, dict) and "hash" in entry:
+                current_hashes[p.name] = entry["hash"]
+
+        mutation_result = detect_sequence_mutation(
+            previous_hashes=previous_hashes,
+            current_hashes=current_hashes,
+            config=G_MUTATION_CONFIG,
+        )
+
+        if existing and G_SHOW_MUTATION_DIFF:
+            changed = summarize_frame_spans(sorted(mutation_result.changed_frames))
+            added = summarize_frame_spans(sorted(mutation_result.added_frames))
+            removed = summarize_frame_spans(sorted(mutation_result.removed_frames))
+
+            if changed:
+                logging.info(
+                    "Sequence %s: changed frames: %s",
+                    dir_path / f"{base}*.{ext}",
+                    changed,
+                )
+            if added:
+                logging.info(
+                    "Sequence %s: added frames: %s",
+                    dir_path / f"{base}*.{ext}",
+                    added,
+                )
+            if removed and G_MUTATION_CONFIG.count_removed_frames:
+                logging.info(
+                    "Sequence %s: removed frames: %s",
+                    dir_path / f"{base}*.{ext}",
+                    removed,
+                )
+
+    # For automated runs (no forced result), we can still early-out if QC is not needed.
+    # When mutation detection is enabled, we use its result instead of a simple
+    # "content hash changed" check; otherwise we fall back to the original needs_reqc.
+    if not operator_forced and existing:
+        policy_changed = (
+            existing.get("policy_version") != sidecar.get_qc_policy_version()
+        )
+
+        if G_MUTATION_CONFIG is not None and mutation_result is not None:
+            # Policy changes always require QC, regardless of content.
+            if policy_changed:
+                needs_qc = True
+            else:
+                # Use mutation logic to decide if content changed "enough".
+                needs_qc = mutation_result.mutated
+        else:
+            # Original behaviour: policy or content hash change triggers QC.
+            needs_qc = sidecar.needs_reqc(existing, seq_hash)
+
+        if not needs_qc:
+            # But update cheap_fp if missing or changed
+            existing_seq = existing.setdefault("sequence", {}) or {}
+            if existing_seq.get("cheap_fp") != cheap_fp:
+                existing_seq["cheap_fp"] = cheap_fp
+                sidecar.write_sidecar(sc, existing)
+            return ("skip", dir_path / f"{base}*.{ext}")
 
     # ---------- Build new signature ----------
 
@@ -386,8 +481,6 @@ def process_sequence(
     existing_content_hash = existing.get("content_hash") if existing else None
 
     operator_forced = G_FORCED_RESULT is not None
-
-    # ... cheap_fp / hashing / content_changed logic ...
 
     # Prefer explicit asset_id from CLI, then Trak directory/file lookup, then existing
     existing_asset_id = existing.get("asset_id") if existing else None
@@ -465,18 +558,23 @@ def process_sequence(
         if prev_last_valid_qc_time is not None:
             sig["last_valid_qc_time"] = prev_last_valid_qc_time
 
-    # Lightweight sequence summary
-    names = [p.name for p in files]
+        # Lightweight sequence summary
+        names = [p.name for p in files]
     summary = summarize_frames(names) or {}
+    frame_count = len(names)
 
     sig["sequence"] = {
         "base": nbase,
         "ext": next_,
         "first": names[0],
         "last": names[-1],
-        "frame_count": len(names),
+        "frame_count": frame_count,
         **summary,
         "cheap_fp": cheap_fp,
+        # Compact per-sequence fingerprint; currently just the manifest hash.
+        # In schema v2 we can evolve this into a richer structure without
+        # changing callers that read sequence["fingerprint"].
+        "fingerprint": sig.get("content_hash"),
     }
 
     if result == "pending":

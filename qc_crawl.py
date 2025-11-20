@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import dotenv
 from pathlib import Path
 from qc_asset_crawler import crawler, sidecar
+from qc_asset_crawler.mutation import SequenceMutationConfig
 
 try:
     # Optional: nicer colours on Windows
@@ -218,7 +219,33 @@ def main() -> int:
         "--note",
         help="Optional operator note to store in the sidecar",
     )
-
+    ap.add_argument(
+        "--enable-mutation-detection",
+        action="store_true",
+        help="Enable sequence-level partial-frame mutation detection.",
+    )
+    ap.add_argument(
+        "--mutation-threshold-frames",
+        type=int,
+        default=None,
+        help="Trigger mutation if N or more frames changed.",
+    )
+    ap.add_argument(
+        "--mutation-threshold-percent",
+        type=float,
+        default=None,
+        help="Trigger mutation if >= P percent of frames changed.",
+    )
+    ap.add_argument(
+        "--mutation-count-removed",
+        action="store_true",
+        help="Count removed frames as mutations.",
+    )
+    ap.add_argument(
+        "--show-diff",
+        action="store_true",
+        help="If mutation detected, show frame change ranges.",
+    )
     args = ap.parse_args()
 
     # Initialise logging using module-level configure_logging (no nested def!)
@@ -232,6 +259,18 @@ def main() -> int:
     crawler.G_SIDECAR_MODE = args.sidecar_mode
     crawler.G_FORCED_RESULT = args.result
     crawler.G_NOTE = args.note
+
+    if args.enable_mutation_detection:
+        crawler.G_MUTATION_CONFIG = SequenceMutationConfig(
+            threshold_frames=args.mutation_threshold_frames or 1,
+            threshold_percent=args.mutation_threshold_percent,
+            count_removed_frames=args.mutation_count_removed,
+            treat_added_frames_as_mutation=True,
+        )
+    else:
+        crawler.G_MUTATION_CONFIG = None
+
+    crawler.G_SHOW_MUTATION_DIFF = args.show_diff
 
     # keep sidecar module in sync so it knows where to write
     sidecar.G_SIDECAR_MODE = args.sidecar_mode
