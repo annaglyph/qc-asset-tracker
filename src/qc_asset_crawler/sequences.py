@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from collections.abc import Iterable
 
 # Media handling
 MEDIA_EXTS = {
@@ -70,8 +70,8 @@ def group_sequences(files: Iterable[Path], min_seq: int = 3):
 
     A 'sequence' must have at least `min_seq` frames.
     """
-    groups: Dict[Tuple[Path, str, str], List[Path]] = {}
-    singles: List[Path] = []
+    groups: dict[tuple[Path, str, str], list[Path]] = {}
+    singles: list[Path] = []
 
     # First pass: try to group all sequence-capable files
     for p in files:
@@ -92,12 +92,12 @@ def group_sequences(files: Iterable[Path], min_seq: int = 3):
     return sequences, singles
 
 
-def summarize_frames(file_names: List[str]) -> Dict[str, int] | None:
+def summarize_frames(file_names: list[str]) -> dict[str, int] | None:
     """
     Summarise frame range, holes, and padding from a list of filenames
     that follow the pattern base.frame.ext.
     """
-    frames: List[int] = []
+    frames: list[int] = []
     pad: int | None = None
 
     for n in file_names:

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import Dict, Optional
-from pathlib import Path
-import requests
 import logging
 import os
+from pathlib import Path
+
+import requests
 
 
 def get_trak_base_url() -> str:
@@ -15,7 +15,7 @@ def get_trak_api_key() -> str:
     return os.environ.get("TRAK_ASSET_TRACKER_API_KEY", None)
 
 
-def headers_json() -> Dict[str, str]:
+def headers_json() -> dict[str, str]:
     header = {
         "content-type": "application/json",
         "cache-control": "no-cache",
@@ -79,7 +79,7 @@ def tracker_lookup_asset_by_path(path: Path) -> dict:
         return {"asset_id": None, "status": "error", "http_code": None}
 
 
-def tracker_set_qc(asset_id: Optional[str], payload: dict) -> bool:
+def tracker_set_qc(asset_id: str | None, payload: dict) -> bool:
     if not asset_id or payload.get("qc_result") == "pending":
         return False
     url = f"{get_trak_base_url()}/assets/{asset_id}/qc"

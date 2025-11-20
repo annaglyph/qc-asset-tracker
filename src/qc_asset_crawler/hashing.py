@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import List, Dict
 import hashlib
+from pathlib import Path
 
 try:
     import blake3  # type: ignore
@@ -25,7 +24,7 @@ def blake3_or_sha256_file(path: Path, chunk=4 * 1024 * 1024) -> str:
     return "sha256:" + h.hexdigest()
 
 
-def cheap_fingerprint(paths: List[Path]) -> Dict[str, int]:
+def cheap_fingerprint(paths: list[Path]) -> dict[str, int]:
     total_files, total_bytes, newest_mtime = 0, 0, 0
     for p in paths:
         st = p.stat()
@@ -53,7 +52,7 @@ def content_hash_with_cache(p: Path, cache):
     return h
 
 
-def manifest_hash_for_files(files: List[Path], cache) -> str:
+def manifest_hash_for_files(files: list[Path], cache) -> str:
     # Stable order
     lines = []
     for p in files:

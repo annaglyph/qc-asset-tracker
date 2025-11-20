@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple, Iterable
+from collections.abc import Iterable
 
 from qc_asset_crawler.sequences import (
     iter_media,
@@ -16,14 +16,14 @@ from qc_asset_crawler import hashing, trak_client, sidecar, hashcache, qcstate, 
 
 # Globals set from CLI
 G_SIDECAR_MODE: str = "subdir"
-G_FORCED_RESULT: Optional[str] = None
-G_NOTE: Optional[str] = None
+G_FORCED_RESULT: str | None = None
+G_NOTE: str | None = None
 
 
 # ----------------- Helpers -----------------
 
 
-def normalize_base_ext(base: str, ext: str) -> Tuple[str, str]:
+def normalize_base_ext(base: str, ext: str) -> tuple[str, str]:
     # base: strip trailing '.' ; ext: strip leading '.'
     return base[:-1] if base.endswith(".") else base, (
         ext[1:] if ext.startswith(".") else ext
@@ -195,7 +195,7 @@ def mark_missing_content(root: Path) -> int:
 def process_single_file(
     p: Path,
     operator: str,
-    asset_id: Optional[str] = None,
+    asset_id: str | None = None,
 ):
     """
     Process a single media file.
@@ -309,9 +309,9 @@ def process_sequence(
     dir_path: Path,
     base: str,
     ext: str,
-    files: List[Path],
+    files: list[Path],
     operator: str,
-    asset_id: Optional[str] = None,
+    asset_id: str | None = None,
 ):
     """
     Process an image sequence under dir_path.
@@ -507,7 +507,7 @@ def run(
     operator: str,
     workers: int,
     min_seq: int,
-    asset_id: Optional[str] = None,
+    asset_id: str | None = None,
 ) -> int:
     """Run the crawler for a single root and log a concise summary."""
     files = list(iter_media(root))
@@ -521,7 +521,7 @@ def run(
         len(singles),
     )
 
-    results: list[Tuple[str, Path]] = []
+    results: list[tuple[str, Path]] = []
     worker_errors = 0
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
@@ -588,7 +588,7 @@ def run_many(
     operator: str,
     workers: int,
     min_seq: int,
-    asset_ids: Optional[Iterable[Optional[str]]] = None,
+    asset_ids: Iterable[str | None] | None = None,
 ) -> int:
     """
     Run the crawler over multiple roots in a single invocation.
@@ -626,7 +626,7 @@ def run_many(
         return 0
 
     # Normalise asset_ids into a list aligned with roots
-    normalised_asset_ids: List[Optional[str]] = [None] * len(roots)
+    normalised_asset_ids: list[str | None] = [None] * len(roots)
     if asset_ids is not None:
         asset_ids = list(asset_ids)
         if len(asset_ids) == 1 and len(roots) >= 1:

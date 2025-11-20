@@ -5,7 +5,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
 from qc_asset_crawler import sidecar
 from qc_asset_crawler import config
@@ -35,11 +35,11 @@ def uuid7() -> str:
 def make_qc_signature(
     asset_path: Path,
     content_hash: str,
-    asset_id: Optional[str],
+    asset_id: str | None,
     operator: str,
     result: str = "pass",
-    note: Optional[str] = None,
-) -> Dict[str, Any]:
+    note: str | None = None,
+) -> dict[str, Any]:
     """
     Build the core QC signature dict for a single asset or sequence.
 

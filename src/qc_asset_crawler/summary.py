@@ -4,8 +4,8 @@ import argparse
 import json
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Dict, List, Mapping, Sequence, Tuple
 
 
 STATUS_ICONS: Mapping[str, str] = {
@@ -20,14 +20,14 @@ def get_status(data: dict) -> str:
     return (data.get("qc_result") or "pending").lower()
 
 
-def find_sidecars(paths: Sequence[str]) -> List[Path]:
+def find_sidecars(paths: Sequence[str]) -> list[Path]:
     """Yield sidecar paths from the given paths (files or dirs).
 
     - Files: treated as candidate sidecars if they end with '.qc.json' or 'sequence.qc.json'
       (or whatever your convention is, if you tweak this).
     - Dirs: scanned recursively for '*.qc.json'.
     """
-    found: List[Path] = []
+    found: list[Path] = []
 
     for raw in paths:
         path = Path(raw)
@@ -80,7 +80,7 @@ def summarise_sidecar(data: dict, path: Path, max_note_len: int | None = 160) ->
     sequence = data.get("sequence") or None
 
     icon = STATUS_ICONS.get(qc_result, "❓")
-    lines: List[str] = []
+    lines: list[str] = []
 
     # Header line
     lines.append(f"{icon} {qc_result.upper()} – {asset_path}")
@@ -103,7 +103,7 @@ def summarise_sidecar(data: dict, path: Path, max_note_len: int | None = 160) ->
         holes = sequence.get("holes")
         pad = sequence.get("pad")
 
-        range_str_parts: List[str] = []
+        range_str_parts: list[str] = []
         if frame_min is not None and frame_max is not None:
             range_str_parts.append(f"{frame_min}–{frame_max}")
         if frame_count is not None:
@@ -148,7 +148,7 @@ def format_rollup(counter: Counter, prefix: str = "Summary: ") -> str:
     if not total:
         return prefix + "no items."
 
-    parts: List[str] = []
+    parts: list[str] = []
     parts.append(f"{total} item{'s' if total != 1 else ''}")
 
     # Deterministic order for statuses
@@ -156,7 +156,7 @@ def format_rollup(counter: Counter, prefix: str = "Summary: ") -> str:
     others = [s for s in counter.keys() if s not in order]
     order.extend(sorted(others))
 
-    detail_bits: List[str] = []
+    detail_bits: list[str] = []
     for status in order:
         count = counter.get(status, 0)
         if not count:
@@ -248,7 +248,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     else:
         # Compact per-directory view.
-        groups: Dict[Path, List[Tuple[Path, dict]]] = defaultdict(list)
+        groups: dict[Path, list[tuple[Path, dict]]] = defaultdict(list)
 
         for path in sidecars:
             data = load_json(path)

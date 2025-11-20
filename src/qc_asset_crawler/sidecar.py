@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
-import sys
 import json
 import os
 import logging
-from typing import Any, Callable
+import sys
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 
 # ---------------- Schema metadata & migrations ---------------- #
